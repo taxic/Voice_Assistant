@@ -1,0 +1,235 @@
+# AI Voice Assistant
+
+A sophisticated voice-controlled AI assistant with memory capabilities, calendar integration, and interrupt functionality. Built with Python and powered by local LLM (Ollama) for privacy and offline operation.
+
+## 🚀 Features
+
+- **Voice Recognition**: Wake word detection and command processing
+- **Memory System**: Contextual conversation memory with SQLite storage
+- **Calendar Integration**: Google Calendar events management
+- **Weather Information**: Real-time weather data via Open-Meteo API
+- **Timer Functionality**: Set and manage countdowns
+- **Interrupt Capability**: Stop the assistant mid-response
+- **Intent Recognition**: Smart LLM-powered command understanding
+- **Text-to-Speech**: Responsive voice output with interruption support
+
+## 🛠️ Technology Stack
+
+- **Python 3.7+**
+- **Ollama** (Local LLM - Mistral)
+- **Vosk** (Speech Recognition)
+- **pyttsx3** (Text-to-Speech)
+- **Google Calendar API**
+- **SQLite** (Memory Storage)
+- **Open-Meteo API** (Weather Data)
+
+## 📦 Installation
+
+### Prerequisites
+
+1. **Install Python 3.7+**
+2. **Install Ollama**: [Download from ollama.ai](https://ollama.ai/)
+3. **Download Vosk Model**:
+   ```bash
+   mkdir models
+   cd models
+   wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+   unzip vosk-model-small-en-us-0.15.zip
+   ```
+
+### Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Google Calendar Setup (Optional)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing one
+3. Enable Google Calendar API
+4. Create credentials (OAuth 2.0)
+5. Download `credentials.json` to project root
+
+### Ollama Setup
+
+```bash
+ollama pull mistral
+```
+
+## 🎯 Usage
+
+### Basic Usage
+
+```bash
+python main.py
+```
+
+Say the wake word "Jarvis" and then give your command.
+
+### Example Commands
+
+- **Weather**: "What's the weather like in London?"
+- **Calendar**: "Schedule a meeting tomorrow at 3 PM"
+- **Timer**: "Set a timer for 15 minutes"
+- **Memory**: "What did we discuss about the project?"
+- **Time**: "What time is it?"
+- **General**: "Tell me about Python programming"
+
+### Interrupt Commands
+
+You can interrupt the assistant at any time by saying:
+- "Stop"
+- "Pause" 
+- "Wait"
+- "Interrupt"
+- "Hold on"
+- "Quiet"
+
+## 📁 Project Structure
+
+```
+Assistant/
+├── main.py                 # Main application entry point
+├── voice_recognition.py    # Speech recognition and wake word detection
+├── llm_interface.py        # Ollama LLM integration
+├── memory.py              # Conversation memory management
+├── commands.py            # Command implementations (weather, time, etc.)
+├── interruptible_tts.py   # Text-to-speech with interrupt capability
+├── intent_parser.py       # Intent classification and parsing
+├── command_parser.py      # Command parsing utilities
+├── calendar_interface.py  # Google Calendar integration
+├── test_improvements.py   # Testing script for improvements
+├── test_interrupt.py      # Interrupt functionality tests
+├── requirements.txt       # Python dependencies
+└── README.md             # This file
+```
+
+## 🧪 Testing
+
+### Test Intent Parsing
+```bash
+python test_improvements.py
+```
+
+### Test Interrupt Functionality
+```bash
+python test_interrupt.py
+```
+
+## ⚙️ Configuration
+
+### Voice Recognition
+- Wake word: "Jarvis" (configurable in `voice_recognition.py`)
+- Model path: `models/vosk-model-small-en-us-0.15`
+
+### LLM Settings
+- Default model: Mistral (via Ollama)
+- Timeout: 30 seconds
+- Configurable in `llm_interface.py`
+
+### Memory
+- Database: `memory.db` (SQLite)
+- Context limit: 5 recent interactions
+- Automatic cleanup and categorization
+
+## 🔧 Advanced Features
+
+### Memory System
+The assistant maintains conversation context using:
+- **Recent Memory**: Last 5 interactions
+- **Contextual Search**: Semantic search through conversation history
+- **Categorized Storage**: Different types of interactions (weather, calendar, etc.)
+
+### Intent Recognition
+Dual-mode intent parsing:
+1. **LLM-based**: Semantic understanding via Mistral
+2. **Keyword-based**: Fallback pattern matching
+
+### Interrupt Handling
+Real-time interrupt detection:
+- Background voice monitoring
+- Process termination capabilities
+- Graceful response handling
+
+## 📋 Requirements
+
+Create a `requirements.txt` file:
+
+```
+vosk==0.3.45
+sounddevice==0.4.6
+pyttsx3==2.90
+requests==2.31.0
+dateparser==1.1.8
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.108.0
+pytz==2023.3
+nltk==3.8.1
+sqlite3
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **Voice Recognition Not Working**
+   - Check microphone permissions
+   - Verify Vosk model is downloaded correctly
+   - Test microphone with other applications
+
+2. **Ollama Connection Failed**
+   - Ensure Ollama is running: `ollama serve`
+   - Check if Mistral model is installed: `ollama list`
+
+3. **Calendar Integration Issues**
+   - Verify `credentials.json` is present
+   - Check Google Calendar API is enabled
+   - Ensure proper OAuth scopes
+
+4. **Import Errors**
+   - Install all requirements: `pip install -r requirements.txt`
+   - Check Python version (3.7+)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📝 Recent Improvements
+
+- ✅ Optimized interrupt detection (50ms polling)
+- ✅ Enhanced error handling and timeouts
+- ✅ Cleaned up imports and dependencies
+- ✅ Added NLTK fallback tokenizer
+- ✅ Improved memory search algorithms
+- ✅ Better calendar integration
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Ollama](https://ollama.ai/) for local LLM capabilities
+- [Vosk](https://alphacephei.com/vosk/) for speech recognition
+- [Open-Meteo](https://open-meteo.com/) for weather data
+- Google Calendar API for calendar integration
+
+## 🔮 Future Enhancements
+
+- [ ] Multi-language support
+- [ ] Plugin system for custom commands  
+- [ ] Web interface for configuration
+- [ ] Smart home integration
+- [ ] Voice training for better recognition
+- [ ] Encrypted conversation storage
+
+---
+
+**Note**: This assistant runs entirely locally for privacy. Your conversations and data never leave your machine unless you explicitly use online services (weather, calendar).
