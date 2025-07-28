@@ -210,10 +210,6 @@ sqlite3
 - ✅ Improved memory search algorithms
 - ✅ Better calendar integration
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🙏 Acknowledgments
 
 - [Ollama](https://ollama.ai/) for local LLM capabilities
