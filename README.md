@@ -1,26 +1,32 @@
 # AI Voice Assistant
 
-A sophisticated voice-controlled AI assistant with memory capabilities, calendar integration, and interrupt functionality. Built with Python and powered by local LLM (Ollama) for privacy and offline operation.
+A sophisticated voice-controlled AI assistant with advanced memory capabilities, Spotify integration, web search, enhanced memory system, interrupt functionality, and modern GUI interface. Built with Python and powered by local LLM (Ollama) for privacy and offline operation.
 
 ## 🚀 Features
 
 - **Voice Recognition**: Wake word detection and command processing
-- **Memory System**: Contextual conversation memory with SQLite storage
+- **Enhanced Memory System**: Advanced contextual conversation memory with intelligent categorization and search
+- **Piper TTS**: High-quality neural text-to-speech synthesis
+- **Spotify Integration**: Music control and playlist management
+- **Web Search**: Real-time web search capabilities with intelligent result processing
+- **GUI Interface**: Modern graphical user interface for enhanced interaction
 - **Calendar Integration**: Google Calendar events management
 - **Weather Information**: Real-time weather data via Open-Meteo API
 - **Timer Functionality**: Set and manage countdowns
 - **Interrupt Capability**: Stop the assistant mid-response
 - **Intent Recognition**: Smart LLM-powered command understanding
-- **Text-to-Speech**: Responsive voice output with interruption support
 
 ## 🛠️ Technology Stack
 
 - **Python 3.7+**
 - **Ollama** (Local LLM - Mistral)
 - **Vosk** (Speech Recognition)
-- **pyttsx3** (Text-to-Speech)
+- **Piper TTS** (Neural Text-to-Speech)
+- **Spotify Web API** (Music Integration)
+- **Web Search APIs** (Real-time search capabilities)
+- **Tkinter/PyQt** (GUI Framework)
 - **Google Calendar API**
-- **SQLite** (Memory Storage)
+- **SQLite** (Enhanced Memory Storage)
 - **Open-Meteo API** (Weather Data)
 
 ## 📦 Installation
@@ -73,6 +79,8 @@ Say the wake word "Jarvis" and then give your command.
 - **Calendar**: "Schedule a meeting tomorrow at 3 PM"
 - **Timer**: "Set a timer for 15 minutes"
 - **Memory**: "What did we discuss about the project?"
+- **Spotify**: "Play my workout playlist" or "Skip to the next song"
+- **Web Search**: "Search for the latest Python tutorials"
 - **Time**: "What time is it?"
 - **General**: "Tell me about Python programming"
 
@@ -203,6 +211,11 @@ sqlite3
 
 ## 📝 Recent Improvements
 
+- ✅ **Piper TTS Integration**: High-quality neural text-to-speech synthesis
+- ✅ **Spotify Integration**: Complete music control and playlist management
+- ✅ **Web Search Capabilities**: Real-time web search with intelligent result processing
+- ✅ **Enhanced Memory System**: Advanced contextual search and categorization
+- ✅ **GUI Interface**: Modern graphical user interface for enhanced interaction
 - ✅ Optimized interrupt detection (50ms polling)
 - ✅ Enhanced error handling and timeouts
 - ✅ Cleaned up imports and dependencies
@@ -214,6 +227,8 @@ sqlite3
 
 - [Ollama](https://ollama.ai/) for local LLM capabilities
 - [Vosk](https://alphacephei.com/vosk/) for speech recognition
+- [Piper TTS](https://github.com/rhasspy/piper) by the Rhasspy team for high-quality neural text-to-speech
+- [Spotify Web API](https://developer.spotify.com/documentation/web-api/) for music integration
 - [Open-Meteo](https://open-meteo.com/) for weather data
 - Google Calendar API for calendar integration
 
@@ -226,6 +241,22 @@ sqlite3
 - [ ] Voice training for better recognition
 - [ ] Encrypted conversation storage
 
+## 📜 License
+
+This project is **commercial software** and is proprietary. All rights reserved.
+
+### Commercial Use
+- This software is intended for commercial use and distribution
+- Unauthorized reproduction, distribution, or modification is prohibited
+- For licensing inquiries, please contact the project maintainers
+
+### Third-Party Components
+This software incorporates several open-source components under their respective licenses:
+- **Piper TTS**: MIT License - Copyright (c) 2023 Michael Hansen (Rhasspy)
+- **Vosk**: Apache License 2.0
+- **Ollama**: MIT License
+- **Other dependencies**: See individual package licenses in `requirements.txt`
+
 ---
 
-**Note**: This assistant runs entirely locally for privacy. Your conversations and data never leave your machine unless you explicitly use online services (weather, calendar).
+**Note**: This assistant runs entirely locally for privacy. Your conversations and data never leave your machine unless you explicitly use online services (weather, calendar, Spotify, web search).
