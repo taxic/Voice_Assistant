@@ -92,7 +92,10 @@ class GoogleCalendar:
         events = events_result.get('items', [])
 
         if not events:
-            return f"You have no events on {date_obj.strftime('%A')}."
+            if date_obj.strftime('%A') == datetime.now().strftime('%A'):
+                return "You have no events today."
+            else:
+                return f"You have no events on {date_obj.strftime('%A')}."
 
         response_lines = [f"Here are your events on {date_obj.strftime('%A')}:"]
 
