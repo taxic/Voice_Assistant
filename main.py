@@ -3,7 +3,7 @@
 from voice_recognition import VoiceRecognizer
 from llm_interface import LLMInterface
 from memory import Memory
-from commands import get_weather, get_time, add_calendar_event, get_calendar_events_for_date, start_timer
+from commands import get_weather, get_time, add_calendar_event, get_calendar_events_for_date, start_timer, tell_joke
 from interruptible_tts import InterruptibleTTS
 from command_parser import parse_calendar_add
 from intent_parser import IntentParser
@@ -177,6 +177,9 @@ Location:"""
             elif intent == "time":
                 response = get_time()
                 memory.save_interaction(command, response, "time")
+            elif intent == "joke":
+                response = tell_joke()
+                memory.save_interaction(command, response, "joke")
             elif intent == "calendar_add":
                 event_data = parse_calendar_add(llm, command)
                 if event_data:

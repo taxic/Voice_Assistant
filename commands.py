@@ -136,3 +136,24 @@ def start_timer(duration_minutes):
     thread = threading.Thread(target=countdown, daemon=True)
     thread.start()
     return f"Starting a {duration_minutes}-minute timer."
+
+def tell_joke():
+    """Fetch and return a random joke from an online API"""
+    try:
+        # Use a simple joke API
+        joke_url = "https://official-joke-api.appspot.com/random_joke"
+        response = requests.get(joke_url, timeout=5)
+        
+        if response.status_code == 200:
+            joke_data = response.json()
+            return f"{joke_data['setup']} ... {joke_data['punchline']}"
+        else:
+            # Fallback to a simple built-in joke if API fails
+            return "Why don't scientists trust atoms? Because they make up everything!"
+            
+    except requests.RequestException:
+        # Fallback joke if network request fails
+        return "Why did the programmer quit his job? Because he didn't get arrays!"
+    except Exception:
+        # Another fallback
+        return "Why do programmers prefer dark mode? Because light attracts bugs!"
