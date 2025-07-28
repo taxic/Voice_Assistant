@@ -2,11 +2,12 @@
 
 from voice_recognition import VoiceRecognizer
 from llm_interface import LLMInterface
-from memory import Memory
-from commands import get_weather, get_time, add_calendar_event, get_calendar_events_for_date, start_timer, tell_joke
+from enhanced_memory import EnhancedMemory
+from commands import get_weather, get_time, add_calendar_event, get_calendar_events_for_date, start_timer, tell_joke, play_music, queue_music, pause_music, resume_music, next_song, previous_song, get_current_song, set_volume, search_web, search_web_with_context, get_memory_stats, save_important_info, search_my_memory
 from interruptible_tts import InterruptibleTTS
 from command_parser import parse_calendar_add
 from intent_parser import IntentParser
+from config_manager import config
 import dateparser
 from datetime import datetime
 import threading
@@ -78,7 +79,7 @@ def handle_interrupt_during_processing(recognizer, llm, tts):
     
     # More efficient interrupt checking with event-based approach
     start_time = time.time()
-    timeout = 30  # Maximum time to wait for LLM
+    timeout = config.get('llm.timeout_seconds', 30)  # Maximum time to wait for LLM
     
     while not recognizer.check_interrupt():
         if not llm.current_process:  # LLM finished
@@ -86,7 +87,7 @@ def handle_interrupt_during_processing(recognizer, llm, tts):
         if time.time() - start_time > timeout:
             print("[WARN] LLM processing timeout")
             break
-        time.sleep(0.05)  # Reduced sleep time for better responsiveness
+        time.sleep(config.get('voice.interrupt_check_interval', 0.05))  # Configurable sleep time
     
     if recognizer.check_interrupt():
         print("[INFO] Interrupt detected during processing")
@@ -98,20 +99,24 @@ def handle_interrupt_during_processing(recognizer, llm, tts):
 
 def is_interrupt_command(command):
     """Check if the command is an interrupt-related command"""
-    interrupt_phrases = [
+    interrupt_phrases = config.get('assistant.interrupt_phrases', [
         "stop", "pause", "wait", "interrupt", "hold on", "quiet", 
         "shut up", "enough", "cancel", "nevermind", "never mind"
-    ]
+    ])
     return any(phrase in command.lower() for phrase in interrupt_phrases)
 
 def main():
-    memory = Memory()
+    memory = EnhancedMemory()
     recognizer = VoiceRecognizer()
-    llm = LLMInterface(model="mistral", memory=memory)
+    llm = LLMInterface(memory=memory)  # Will use config for model
     tts = InterruptibleTTS(voice_recognizer=recognizer)
     
-    print("[INFO] Assistant initialized with interrupt functionality")
-    print("[INFO] You can interrupt the assistant by saying: stop, pause, wait, interrupt, hold on, quiet")
+    assistant_name = config.get('assistant.name', 'Assistant')
+    assistant_version = config.get('assistant.version', '1.0.0')
+    interrupt_phrases = config.get('assistant.interrupt_phrases', ['stop', 'pause', 'wait'])
+    
+    print(f"[INFO] {assistant_name} v{assistant_version} initialized with interrupt functionality")
+    print(f"[INFO] You can interrupt the assistant by saying: {', '.join(interrupt_phrases[:6])}")
 
     while True:
         recognizer.listen_for_wake_word()
@@ -157,19 +162,20 @@ def main():
                     response = "Sorry, I couldn't understand the timer duration." 
                     memory.save_interaction(command, response, "timer_error")
             elif intent == "get_weather":
-                location = "Guildford"  # default fallback
+                default_location = config.get('weather.default_location', 'Guildford')
+                location = default_location  # default fallback
                 target_time = extract_datetime(command)
                 print("Target datetime:", target_time)
                 
                 # Enhanced location extraction using LLM
-                location_prompt = f"""Extract the location from this weather request. If no location is mentioned, respond with 'Guildford' as a one word answer.
+                location_prompt = f"""Extract the location from this weather request. If no location is mentioned, respond with '{default_location}' as a one word answer.
                 
 User request: "{command}"
                 
 Location:"""
                 
                 extracted_location = llm._call_llm(location_prompt).strip()
-                if extracted_location and extracted_location.lower() != "Guildford":
+                if extracted_location and extracted_location.lower() != default_location.lower():
                     location = extracted_location
                 
                 response = get_weather(location, target_time)
@@ -180,6 +186,82 @@ Location:"""
             elif intent == "joke":
                 response = tell_joke()
                 memory.save_interaction(command, response, "joke")
+            elif intent == "play_music":
+                music_query = IntentParser.extract_music_query(command)
+                if music_query:
+                    response = play_music(music_query)
+                    memory.save_interaction(command, response, "music_play")
+                else:
+                    response = "Sorry, I couldn't understand what music you want to play."
+                    memory.save_interaction(command, response, "music_error")
+            elif intent == "queue_music":
+                music_query = IntentParser.extract_music_query(command)
+                if music_query:
+                    response = queue_music(music_query)
+                    memory.save_interaction(command, response, "music_queue")
+                else:
+                    response = "Sorry, I couldn't understand what music you want to queue."
+                    memory.save_interaction(command, response, "music_error")
+            elif intent == "pause_music":
+                response = pause_music()
+                memory.save_interaction(command, response, "music_pause")
+            elif intent == "resume_music":
+                response = resume_music()
+                memory.save_interaction(command, response, "music_resume")
+            elif intent == "next_song":
+                response = next_song()
+                memory.save_interaction(command, response, "music_next")
+            elif intent == "previous_song":
+                response = previous_song()
+                memory.save_interaction(command, response, "music_previous")
+            elif intent == "current_song":
+                response = get_current_song()
+                memory.save_interaction(command, response, "music_current")
+            elif intent == "volume_control":
+                response = set_volume(command)
+                memory.save_interaction(command, response, "music_volume")
+            elif intent == "web_search":
+                search_query = IntentParser.extract_search_query(command)
+                if search_query:
+                    # Use contextual web search with LLM for better responses
+                    response = search_web_with_context(search_query, llm)
+                    memory.save_interaction(command, response, "web_search")
+                else:
+                    response = "Sorry, I couldn't understand what you want me to search for."
+                    memory.save_interaction(command, response, "search_error")
+            elif intent == "memory_stats":
+                response = get_memory_stats()
+                memory.save_interaction(command, response, "memory_stats")
+            elif intent == "save_memory":
+                content = IntentParser.extract_memory_content(command)
+                if content and len(content) > 5:  # Ensure there's meaningful content
+                    # Generate a title from the content
+                    title = content[:50] + "..." if len(content) > 50 else content
+                    response = save_important_info(title, content, "user_saved")
+                    memory.save_interaction(command, response, "save_memory", importance=8)
+                else:
+                    response = "Sorry, I couldn't understand what you want me to remember. Please be more specific."
+                    memory.save_interaction(command, response, "save_memory_error")
+            elif intent == "search_memory":
+                search_query = IntentParser.extract_search_query(command)
+                if not search_query:
+                    # Try to extract from memory search patterns
+                    memory_patterns = ["about", "regarding", "concerning"]
+                    for pattern in memory_patterns:
+                        if pattern in command.lower():
+                            parts = command.lower().split(pattern, 1)
+                            if len(parts) > 1:
+                                search_query = parts[1].strip()
+                                break
+                    if not search_query:
+                        search_query = command
+                
+                if search_query:
+                    response = search_my_memory(search_query)
+                    memory.save_interaction(command, response, "search_memory")
+                else:
+                    response = "Sorry, I couldn't understand what to search for in your memories."
+                    memory.save_interaction(command, response, "search_memory_error")
             elif intent == "calendar_add":
                 event_data = parse_calendar_add(llm, command)
                 if event_data:
@@ -242,6 +324,13 @@ Location:"""
             # Clean up interrupt detection
             recognizer.stop_interrupt_detection()
             recognizer.clear_interrupt()
+    
+    # Clean up memory system when exiting
+    try:
+        memory.close()
+        print("[INFO] Memory system closed successfully")
+    except Exception as e:
+        print(f"[WARN] Error closing memory system: {e}")
 
 if __name__ == "__main__":
     main()

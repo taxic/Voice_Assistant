@@ -5,7 +5,7 @@ print("Testing module imports...")
 modules_to_test = [
     "voice_recognition",
     "llm_interface", 
-    "memory",
+    "enhanced_memory",
     "commands",
     "interruptible_tts",
     "command_parser",

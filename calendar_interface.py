@@ -7,19 +7,23 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.exceptions import RefreshError
 import pytz
-
-# If modifying these scopes, delete the file token.pickle
-SCOPES = ['https://www.googleapis.com/auth/calendar',
-          'https://www.googleapis.com/auth/tasks']
+from config_manager import config
 
 class GoogleCalendar:
     def __init__(self):
         self.service = self.authenticate()
 
     def authenticate(self):
+        # Get calendar configuration
+        calendar_config = config.get_section('calendar')
+        
         creds = None
-        token_path = 'token.pickle'
-        credentials_path = 'credentials.json'
+        token_path = calendar_config.get('token_file', 'token.pickle')
+        credentials_path = calendar_config.get('credentials_file', 'credentials.json')
+        scopes = calendar_config.get('scopes', [
+            'https://www.googleapis.com/auth/calendar',
+            'https://www.googleapis.com/auth/tasks'
+        ])
         
         # Check if credentials.json exists
         if not os.path.exists(credentials_path):
@@ -52,7 +56,7 @@ class GoogleCalendar:
                 print("[INFO] Starting Google Calendar authentication...")
                 print("[INFO] Your web browser will open for authentication.")
                 flow = InstalledAppFlow.from_client_secrets_file(
-                    credentials_path, SCOPES)
+                    credentials_path, scopes)
                 creds = flow.run_local_server(port=0)
                 print("[INFO] Authentication successful!")
             
@@ -64,11 +68,13 @@ class GoogleCalendar:
         return build('calendar', 'v3', credentials=creds)
 
     def create_event(self, summary, start_time_str, end_time_str):
-
+        # Get timezone from config
+        timezone = config.get('calendar.timezone', 'Europe/London')
+        
         event = {
             'summary': summary,
-            'start': {'dateTime': start_time_str.isoformat(), 'timeZone': 'Europe/London'},
-            'end': {'dateTime': end_time_str.isoformat(), 'timeZone': 'Europe/London'},
+            'start': {'dateTime': start_time_str.isoformat(), 'timeZone': timezone},
+            'end': {'dateTime': end_time_str.isoformat(), 'timeZone': timezone},
         }
 
         event = self.service.events().insert(calendarId='primary', body=event).execute()
@@ -76,8 +82,11 @@ class GoogleCalendar:
 
     def get_events_for_date(self, date_obj):
         """Retrieve all events for a specific date (datetime object)."""
+        # Get timezone from config
+        timezone_name = config.get('calendar.timezone', 'Europe/London')
+        
         # Define start and end of the day in RFC3339 format
-        tz = pytz.timezone("Europe/London")
+        tz = pytz.timezone(timezone_name)
         start_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 0, 0, 0))
         end_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 23, 59, 59))
 

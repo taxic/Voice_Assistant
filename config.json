@@ -1,0 +1,85 @@
+{
+  "llm": {
+    "model": "mistral",
+    "timeout_seconds": 30,
+    "ollama_command": "ollama"
+  },
+  "weather": {
+    "default_location": "Guildford",
+    "geocoding_api_url": "https://geocoding-api.open-meteo.com/v1/search",
+    "weather_api_url": "https://api.open-meteo.com/v1/forecast",
+    "timeout_seconds": 10
+  },
+  "calendar": {
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/tasks"
+    ],
+    "credentials_file": "credentials.json",
+    "token_file": "token.pickle",
+    "timezone": "Europe/London"
+  },
+  "spotify": {
+    "client_id_env": "SPOTIFY_CLIENT_ID",
+    "client_secret_env": "SPOTIFY_CLIENT_SECRET",
+    "redirect_uri_env": "SPOTIFY_REDIRECT_URI",
+    "default_redirect_uri": "http://localhost:8888/callback",
+    "scopes": "user-read-playback-state,user-modify-playback-state,user-read-currently-playing,streaming",
+    "cache_file": ".spotify_cache"
+  },
+  "jokes": {
+    "api_url": "https://official-joke-api.appspot.com/random_joke",
+    "timeout_seconds": 5,
+    "fallback_jokes": [
+      "Why don't scientists trust atoms? Because they make up everything!",
+      "Why did the programmer quit his job? Because he didn't get arrays!",
+      "Why do programmers prefer dark mode? Because light attracts bugs!"
+    ]
+  },
+  "voice": {
+    "wake_word_timeout": 5.0,
+    "command_timeout": 10.0,
+    "interrupt_check_interval": 0.05
+  },
+  "tts": {
+    "engine": "piper",
+    "piper": {
+      "voice": "en_US-lessac-medium",
+      "download_models": true,
+      "models_dir": "piper/models",
+      "chunk_size": 50
+    }
+  },
+  "memory": {
+    "max_recent_interactions": 5,
+    "contextual_search_limit": 3,
+    "short_term_max_items": 50,
+    "short_term_context_limit": 10,
+    "long_term_context_limit": 5,
+    "long_term_threshold": 7,
+    "importance_decay_days": 30,
+    "auto_summarize_threshold": 100
+  },
+  "assistant": {
+    "name": "Assistant",
+    "version": "1.0.0",
+    "interrupt_phrases": [
+      "stop", "pause", "wait", "interrupt", "hold on", "quiet",
+      "shut up", "enough", "cancel", "nevermind", "never mind"
+    ]
+  },
+  "web_search": {
+    "max_results": 5,
+    "max_scrape_results": 3,
+    "timeout_seconds": 10,
+    "scrape_timeout_seconds": 15,
+    "max_content_length": 3000,
+    "delay_between_requests": 2,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  },
+  "paths": {
+    "config_file": "config.json",
+    "memory_file": "memory.json",
+    "logs_directory": "logs"
+  }
+}

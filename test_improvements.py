@@ -7,7 +7,7 @@ without requiring voice input.
 
 from intent_parser import IntentParser
 from llm_interface import LLMInterface
-from memory import Memory
+from enhanced_memory import EnhancedMemory
 
 def test_intent_parsing():
     print("=== Testing Intent Parsing ===\n")
@@ -47,7 +47,7 @@ def test_intent_parsing():
 def test_memory_integration():
     print("=== Testing Memory Integration ===\n")
     
-    memory = Memory("test_memory.db")
+    memory = EnhancedMemory("test_memory.db")
     llm = LLMInterface(model="mistral", memory=memory)
     
     # Simulate some conversations
@@ -62,13 +62,13 @@ def test_memory_integration():
     ]
     
     for user_msg, assistant_msg in conversations:
-        memory.save_interaction(user_msg, assistant_msg)
+        memory.save_interaction(user_msg, assistant_msg, importance=5)
         print(f"Saved: '{user_msg}' -> '{assistant_msg}'")
     
     print("\n2. Testing memory recall...")
     
     # Test recent memory recall
-    recent_context = memory.recall_recent(limit=3)
+    recent_context = memory.get_short_term_context(limit=3)
     print("Recent context:")
     print(recent_context)
     
@@ -84,9 +84,9 @@ def test_memory_integration():
     
     for query in search_queries:
         print(f"\nSearching for: '{query}'")
-        results = memory.search_conversations(query, limit=2)
+        results = memory.search_memory(query, limit=2)
         for result in results:
-            print(f"  Found: '{result['user_input']}' -> '{result['response']}'")
+            print(f"  Found: '{result.get('user_input', result.get('content', ''))}' -> '{result.get('response', result.get('content', ''))}'")
     
     # Test contextual memory retrieval
     print("\n4. Testing contextual memory retrieval...")
@@ -100,7 +100,7 @@ def test_memory_integration():
     
     for query in test_queries:
         print(f"\nQuery: '{query}'")
-        contextual_memory = memory.get_contextual_memory(query, limit=2)
+        contextual_memory = memory.get_relevant_context(query, max_items=2)
         print("Contextual memory:")
         print(contextual_memory)
     
@@ -110,7 +110,7 @@ def test_memory_integration():
 def test_enhanced_workflow():
     print("=== Testing Enhanced Workflow ===\n")
     
-    memory = Memory("test_workflow.db")
+    memory = EnhancedMemory("test_workflow.db")
     llm = LLMInterface(model="mistral", memory=memory)
     intent_parser = IntentParser()
     
@@ -140,24 +140,24 @@ def test_enhanced_workflow():
         # Simulate response based on intent
         if intent == "memory_recall" or is_memory_related:
             print("  -> Using memory search for response")
-            contextual_memory = memory.get_contextual_memory(user_input, limit=2)
+            contextual_memory = memory.get_relevant_context(user_input, max_items=2)
             print(f"  -> Found contextual memory: {len(contextual_memory)} chars")
         elif intent == "get_weather":
             print("  -> Processing weather request")
             response = "The weather is sunny with a temperature of 25°C."
-            memory.save_interaction(user_input, response, "weather")
+            memory.save_interaction(user_input, response, importance=6, tags=["weather"])
         elif intent == "calendar_add":
             print("  -> Processing calendar addition")
             response = "I've scheduled your meeting for tomorrow at 2 PM."
-            memory.save_interaction(user_input, response, "calendar_add")
+            memory.save_interaction(user_input, response, importance=7, tags=["calendar", "scheduling"])
         elif intent == "calendar_view":
             print("  -> Processing calendar view")
             response = "You have a meeting scheduled for tomorrow at 2 PM."
-            memory.save_interaction(user_input, response, "calendar_view")
+            memory.save_interaction(user_input, response, importance=6, tags=["calendar"])
         else:
             print("  -> Processing general query")
             response = f"I understand you're asking about: {user_input}"
-            memory.save_interaction(user_input, response, "general")
+            memory.save_interaction(user_input, response, importance=3, tags=["general"])
         
         print()
     

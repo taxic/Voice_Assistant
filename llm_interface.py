@@ -1,18 +1,22 @@
 # llm_interface.py
 
 import subprocess
-from memory import Memory
+from enhanced_memory import EnhancedMemory
 from datetime import datetime
 from typing import Optional
 import threading
 import time
+from config_manager import config
 
 class LLMInterface:
-    def __init__(self, model="mistral", memory: Memory = None):
-        self.model = model
+    def __init__(self, model=None, memory: EnhancedMemory = None):
+        # Use config for model if not specified
+        self.model = model or config.get('llm.model', 'mistral')
         self.memory = memory  # Optional memory object
         self.current_process = None
         self.interrupt_requested = False
+        self.ollama_command = config.get('llm.ollama_command', 'ollama')
+        self.timeout = config.get('llm.timeout_seconds', 30)
 
     def get_response(self, user_input: str, use_memory_context: bool = True) -> str:
         """Get response from LLM with optional memory context"""
@@ -24,7 +28,8 @@ class LLMInterface:
             return self._get_response_with_context(user_input, False)
         
         # Get contextual memory that's relevant to the user's query
-        context = self.memory.get_contextual_memory(user_input, limit=3)
+        limit = config.get('memory.contextual_search_limit', 3)
+        context = self.memory.get_contextual_memory(user_input, limit=limit)
         
         now = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
         system_prompt = f"""You are a helpful AI assistant. The current date and time is {now}.
@@ -46,7 +51,8 @@ Assistant:"""
         # Build context
         context = ""
         if use_memory and self.memory:
-            context = self.memory.recall_recent(limit=5)
+            limit = config.get('memory.max_recent_interactions', 5)
+            context = self.memory.recall_recent(limit=limit)
         
         now = datetime.now().strftime("%A, %B %d, %Y at %H:%M")
         system_info = f"You are a helpful AI assistant. The current date and time is {now}."
@@ -69,7 +75,7 @@ Assistant:"""
         try:
             # Start the LLM process
             self.current_process = subprocess.Popen(
-                ["ollama", "run", self.model],
+                [self.ollama_command, "run", self.model],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -77,7 +83,7 @@ Assistant:"""
             )
             
             # Send the prompt
-            stdout, stderr = self.current_process.communicate(input=prompt, timeout=30)
+            stdout, stderr = self.current_process.communicate(input=prompt, timeout=self.timeout)
             
             if self.current_process.returncode == 0:
                 return stdout.strip()
@@ -128,7 +134,8 @@ Assistant:"""
         
         if memory_relevant:
             # Get relevant context
-            context = self.memory.get_contextual_memory(user_input, limit=3)
+            limit = config.get('memory.contextual_search_limit', 3)
+            context = self.memory.get_contextual_memory(user_input, limit=limit)
             
             prompt = f"""Analyze this user input to determine if it's asking about a previous conversation:
 

@@ -1,6 +1,6 @@
 # interruptible_tts.py
 
-import pyttsx3
+from piper_tts import PiperTTS
 import threading
 import time
 import queue
@@ -8,60 +8,22 @@ import queue
 
 class InterruptibleTTS:
     def __init__(self, voice_recognizer=None):
-        self.engine = pyttsx3.init()
+        # Use Piper TTS instead of pyttsx3
+        self.engine = PiperTTS(voice_recognizer=voice_recognizer)
         self.voice_recognizer = voice_recognizer
         self.is_speaking = False
         self.interrupt_requested = False
         self.speech_thread = None
         self.speech_queue = queue.Queue()
-        
-        # Configure TTS settings
-        self.engine.setProperty('rate', 150)  # Adjust speech rate
-        voices = self.engine.getProperty('voices')
-        if voices:
-            self.engine.setProperty('voice', voices[0].id)
     
     def speak(self, text, check_interrupts=True):
         """Speak text with optional interrupt checking"""
-        print(f"[Jarvis]: {text}")
+        # Delegate to the Piper TTS engine which handles all the functionality
+        self.engine.speak(text, check_interrupts=check_interrupts)
         
-        if not check_interrupts:
-            # Simple non-interruptible speech
-            self.engine.say(text)
-            self.engine.runAndWait()
-            return
-        
-        # Interruptible speech
-        self.interrupt_requested = False
-        self.is_speaking = True
-        
-        # Start interrupt detection if voice recognizer is available
-        if self.voice_recognizer:
-            self.voice_recognizer.start_interrupt_detection()
-        
-        # Split text into chunks for more responsive interruption
-        chunks = self._split_text_into_chunks(text)
-        
-        try:
-            for chunk in chunks:
-                if self.interrupt_requested or (self.voice_recognizer and self.voice_recognizer.check_interrupt()):
-                    print("[INFO] Speech interrupted")
-                    self.engine.stop()
-                    break
-                
-                self.engine.say(chunk)
-                self.engine.runAndWait()
-                
-                # Small pause between chunks to check for interrupts
-                time.sleep(0.1)
-                
-        except Exception as e:
-            print(f"[ERROR] TTS error: {e}")
-        finally:
-            self.is_speaking = False
-            if self.voice_recognizer:
-                self.voice_recognizer.stop_interrupt_detection()
-                self.voice_recognizer.clear_interrupt()
+        # Update our state to match the engine's state
+        self.is_speaking = self.engine.is_speaking
+        self.interrupt_requested = self.engine.interrupt_requested
     
     def _split_text_into_chunks(self, text, max_chunk_size=50):
         """Split text into smaller chunks for more responsive interruption"""
@@ -82,18 +44,14 @@ class InterruptibleTTS:
     
     def interrupt(self):
         """Request speech interruption"""
-        self.interrupt_requested = True
-        if self.is_speaking:
-            self.engine.stop()
-            print("[INFO] Speech interrupted by request")
+        self.engine.interrupt()
+        self.interrupt_requested = self.engine.interrupt_requested
+        self.is_speaking = self.engine.is_speaking
     
     def is_currently_speaking(self):
         """Check if currently speaking"""
-        return self.is_speaking
+        return self.engine.is_currently_speaking()
     
     def wait_for_completion(self, timeout=30):
         """Wait for current speech to complete"""
-        start_time = time.time()
-        while self.is_speaking and (time.time() - start_time) < timeout:
-            time.sleep(0.1)
-        return not self.is_speaking
+        return self.engine.wait_for_completion(timeout)

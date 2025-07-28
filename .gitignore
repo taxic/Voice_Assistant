@@ -78,6 +78,12 @@ memory.db
 test_memory.db
 test_workflow.db
 
+# Configuration files (may contain sensitive settings)
+config-*.json
+
+# Authentication cache files
+.spotify_cache
+
 # Log files
 *.log
 
