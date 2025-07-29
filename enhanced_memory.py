@@ -30,10 +30,13 @@ class Interaction(MemoryItem):
     response: str = ""
     context_type: str = "general"
     session_id: str = ""
+    metadata: Dict[str, Any] = None
     
     def __post_init__(self):
         super().__post_init__()
         self.memory_type = "interaction"
+        if self.metadata is None:
+            self.metadata = {}
 
 @dataclass
 class LongTermMemory(MemoryItem):
@@ -199,7 +202,8 @@ class EnhancedMemory:
             context_type=context_type,
             session_id=self.current_session_id,
             importance=importance,
-            tags=tags
+            tags=tags,
+            metadata=metadata
         )
         
         # Add to short-term memory
@@ -218,7 +222,7 @@ class EnhancedMemory:
             interaction.session_id,
             interaction.importance,
             json.dumps(interaction.tags),
-            json.dumps(metadata)
+            json.dumps(interaction.metadata)
         ))
         
         self.conn.commit()

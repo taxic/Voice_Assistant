@@ -44,7 +44,7 @@
   "tts": {
     "engine": "piper",
     "piper": {
-      "voice": "en_US-lessac-medium",
+      "voice": "en_US-ryan-high",
       "download_models": true,
       "models_dir": "piper/models",
       "chunk_size": 50
@@ -61,11 +61,20 @@
     "auto_summarize_threshold": 100
   },
   "assistant": {
-    "name": "Assistant",
+    "name": "Jarvis",
     "version": "1.0.0",
     "interrupt_phrases": [
-      "stop", "pause", "wait", "interrupt", "hold on", "quiet",
-      "shut up", "enough", "cancel", "nevermind", "never mind"
+      "stop",
+      "pause",
+      "wait",
+      "interrupt",
+      "hold on",
+      "quiet",
+      "shut up",
+      "enough",
+      "cancel",
+      "nevermind",
+      "never mind"
     ]
   },
   "web_search": {

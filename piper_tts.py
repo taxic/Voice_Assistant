@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 import threading
 import queue
+from config_manager import config
 
 
 class PiperTTS:
@@ -28,7 +29,7 @@ class PiperTTS:
         self.current_config = None
         
         # Default voice settings - we'll start with a good English voice
-        self.default_voice = "en_US-lessac-medium"
+        self.default_voice = config.get('tts.voice', 'en_US-ryan-high')
         
         # Initialize Piper
         self._setup_piper()

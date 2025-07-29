@@ -9,6 +9,7 @@ import dateparser
 import time
 import threading
 import re
+from datetime import timedelta
 
 calendar = GoogleCalendar()
 spotify = SpotifyInterface()
@@ -123,6 +124,17 @@ def add_calendar_event(summary, time, duration):
     start_time = datetime.fromisoformat(time)
     end_time = start_time + timedelta(minutes=duration)
     return calendar.create_event(summary, start_time, end_time)
+
+
+def add_suggest_event(summary, suggested_time, event_duration):
+    date = datetime.now().date() if "tomorrow" in summary.lower() else datetime.now().date() + timedelta(days=1)
+    free_time = calendar.find_free_time_slot(event_duration, date)
+    if free_time:
+        start = datetime.combine(date, datetime.strptime(free_time, "%H:%M").time())
+        end = start + timedelta(minutes=event_duration)
+        return calendar.create_event(summary, start, end)
+    else:
+        return "No free time slot available that matches the duration."
 
 def get_calendar_events_for_date(date_str):
     date_obj = dateparser.parse(date_str)

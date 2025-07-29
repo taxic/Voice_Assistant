@@ -4,6 +4,7 @@ from voice_recognition import VoiceRecognizer
 from llm_interface import LLMInterface
 from enhanced_memory import EnhancedMemory
 from commands import get_weather, get_time, add_calendar_event, get_calendar_events_for_date, start_timer, tell_joke, play_music, queue_music, pause_music, resume_music, next_song, previous_song, get_current_song, set_volume, search_web, search_web_with_context, get_memory_stats, save_important_info, search_my_memory
+from calendar_interface import GoogleCalendar
 from interruptible_tts import InterruptibleTTS
 from command_parser import parse_calendar_add
 from intent_parser import IntentParser
@@ -110,6 +111,7 @@ def main():
     recognizer = VoiceRecognizer()
     llm = LLMInterface(memory=memory)  # Will use config for model
     tts = InterruptibleTTS(voice_recognizer=recognizer)
+    calendar = GoogleCalendar()  # Initialize calendar interface
     
     assistant_name = config.get('assistant.name', 'Assistant')
     assistant_version = config.get('assistant.version', '1.0.0')
@@ -265,11 +267,64 @@ Location:"""
             elif intent == "calendar_add":
                 event_data = parse_calendar_add(llm, command)
                 if event_data:
-                    response = add_calendar_event(
-                        summary=event_data["summary"],
-                        time=event_data["start_time"],
-                        duration=event_data.get("duration_minutes", 60)
-                    )
+                    # Check if time was extracted or if we need to prompt/find space
+                    if not event_data.get("start_time") or "default" in str(event_data.get("start_time", "")).lower():
+                        tts.speak("I notice you didn't specify a time for this event. Would you like me to find a free time slot for you, or would you prefer to specify a time?")
+                        
+                        time_command = recognizer.listen_for_command()
+                        if time_command and any(word in time_command.lower() for word in ["find", "free", "slot", "automatic", "yes"]):
+                            # Find free time slot
+                            try:
+                                from datetime import datetime, timedelta
+                                import dateparser
+                                
+                                # Parse the date from the original command or use today
+                                event_date = datetime.now().date()
+                                if "tomorrow" in command.lower():
+                                    event_date = (datetime.now() + timedelta(days=1)).date()
+                                
+                                duration = event_data.get("duration_minutes", 60)
+                                free_time = calendar.find_free_time_slot(duration, event_date)
+                                
+                                if free_time:
+                                    # Update event data with found time
+                                    start_datetime = datetime.combine(event_date, datetime.strptime(free_time, "%H:%M").time())
+                                    event_data["start_time"] = start_datetime.isoformat()
+                                    response = add_calendar_event(
+                                        summary=event_data["summary"],
+                                        time=event_data["start_time"],
+                                        duration=duration
+                                    )
+                                    response += f" I found a free slot at {free_time}."
+                                else:
+                                    response = f"I couldn't find a free {duration}-minute slot. Please specify a time."
+                            except Exception as e:
+                                response = f"Error finding free time: {str(e)}"
+                        else:
+                            # Ask for specific time
+                            tts.speak("Please tell me what time you'd like to schedule this event.")
+                            time_command = recognizer.listen_for_command()
+                            if time_command:
+                                # Re-parse with the time information
+                                full_command = f"{command} at {time_command}"
+                                event_data = parse_calendar_add(llm, full_command)
+                                if event_data and event_data.get("start_time"):
+                                    response = add_calendar_event(
+                                        summary=event_data["summary"],
+                                        time=event_data["start_time"],
+                                        duration=event_data.get("duration_minutes", 60)
+                                    )
+                                else:
+                                    response = "I couldn't understand the time. Please try again."
+                            else:
+                                response = "No time specified. Event not created."
+                    else:
+                        # Time was provided, create event normally
+                        response = add_calendar_event(
+                            summary=event_data["summary"],
+                            time=event_data["start_time"],
+                            duration=event_data.get("duration_minutes", 60)
+                        )
                     memory.save_interaction(command, response, "calendar_add")
                 else:
                     response = "Invalid calendar event format."

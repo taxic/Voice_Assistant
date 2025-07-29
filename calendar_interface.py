@@ -67,6 +67,52 @@ class GoogleCalendar:
 
         return build('calendar', 'v3', credentials=creds)
 
+    def find_free_time_slot(self, event_duration, date_obj):
+        """Find free slots for the specified duration on a given date."""
+        # Get timezone from config
+        timezone_name = config.get('calendar.timezone', 'Europe/London')
+        tz = pytz.timezone(timezone_name)
+
+        # Fetch events for the date
+        start_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 0, 0, 0))
+        end_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 23, 59, 59))
+
+        events = self.service.events().list(
+            calendarId='primary',
+            timeMin=start_of_day.isoformat(),
+            timeMax=end_of_day.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute().get('items', [])
+
+        # Define work hours and free slots list
+        work_start = start_of_day.replace(hour=9, minute=0)
+        work_end = start_of_day.replace(hour=17, minute=0)
+        free_slots = [(work_start, work_end)]
+
+        # Check availability
+        for event in events:
+            start = datetime.fromisoformat(event['start']['dateTime'])
+            end = datetime.fromisoformat(event['end']['dateTime'])
+
+            new_free_slots = []
+            for free_start, free_end in free_slots:
+                if end <= free_start or start >= free_end:
+                    new_free_slots.append((free_start, free_end))
+                else:
+                    if free_start < start:
+                        new_free_slots.append((free_start, start))
+                    if end < free_end:
+                        new_free_slots.append((end, free_end))
+            free_slots = new_free_slots
+
+        # Find slot matching the duration
+        for free_start, free_end in free_slots:
+            if (free_end - free_start).total_seconds() / 60 >= event_duration:
+                return free_start.strftime('%H:%M')
+
+        return None
+
     def create_event(self, summary, start_time_str, end_time_str):
         # Get timezone from config
         timezone = config.get('calendar.timezone', 'Europe/London')
