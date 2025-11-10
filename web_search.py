@@ -9,94 +9,127 @@ from config_manager import config
 import time
 import random
 
+from duckduckgo_search import DDGS
+
 class WebSearcher:
     """Web search and content scraping functionality"""
-    
+
     def __init__(self):
         self.session = requests.Session()
         # Set a realistic user agent to avoid blocking
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-        
+
     def search_web(self, query: str, num_results: int = None) -> List[Dict[str, str]]:
         """
         Search the web using DuckDuckGo and return results
-        
         Args:
             query: Search query
             num_results: Number of results to return (uses config default if None)
-            
         Returns:
             List of dictionaries with 'title', 'url', 'snippet' keys
         """
         if num_results is None:
             num_results = config.get('web_search.max_results', 5)
-            
+
+        # Try multiple search approaches
+        for attempt in range(3):  # Try up to 3 times
+            try:
+                print(f"[INFO] Searching web for: '{query}' (attempt {attempt + 1})")
+                
+                # Add delay between attempts to avoid rate limiting
+                if attempt > 0:
+                    time.sleep(random.uniform(2, 5))
+                
+                with DDGS() as ddgs:
+                    # Use different backends on retry
+                    if attempt == 0:
+                        results = list(ddgs.text(query, max_results=num_results))
+                    elif attempt == 1:
+                        results = list(ddgs.text(query, max_results=num_results, backend="api"))
+                    else:
+                        results = list(ddgs.text(query, max_results=num_results, backend="html"))
+
+                print(f"[INFO] Found {len(results)} search results")
+                
+                if results:  # If we got results, return them
+                    # Format results to match the expected output
+                    formatted_results = []
+                    for result in results:
+                        formatted_results.append({
+                            'title': result.get('title', ''),
+                            'url': result.get('href', ''),
+                            'snippet': result.get('body', '')
+                        })
+                    
+                    return formatted_results
+
+            except Exception as e:
+                print(f"[ERROR] Web search attempt {attempt + 1} failed: {e}")
+                if "ratelimit" in str(e).lower() or "429" in str(e):
+                    print(f"[INFO] Rate limited, waiting before retry...")
+                    time.sleep(random.uniform(5, 10))
+                continue
+        
+        # If all attempts failed, try a fallback method using requests
+        print(f"[INFO] All DDGS attempts failed, trying fallback method...")
+        return self._fallback_search(query, num_results)
+    
+    def _fallback_search(self, query: str, num_results: int) -> List[Dict[str, str]]:
+        """
+        Fallback search method using DuckDuckGo instant answers API
+        """
         try:
-            # Use DuckDuckGo Instant Answer API for search results
-            search_url = "https://html.duckduckgo.com/html/"
+            # Use instant answers API as fallback
             params = {
                 'q': query,
-                'kl': 'us-en'  # Language and region
+                'format': 'json',
+                'no_html': '1',
+                'skip_disambig': '1'
             }
             
-            print(f"[INFO] Searching web for: '{query}'")
-            
             response = self.session.get(
-                search_url, 
-                params=params, 
-                timeout=config.get('web_search.timeout_seconds', 10)
+                'https://api.duckduckgo.com/',
+                params=params,
+                timeout=10
             )
             
-            if response.status_code != 200:
-                print(f"[ERROR] Search request failed with status {response.status_code}")
-                return []
-            
-            # Parse the HTML response
-            soup = BeautifulSoup(response.content, 'html.parser')
-            results = []
-            
-            # Find search result containers
-            result_containers = soup.find_all('div', class_='result')
-            
-            for container in result_containers[:num_results]:
-                try:
-                    # Extract title and URL
-                    title_link = container.find('a', class_='result__a')
-                    if not title_link:
-                        continue
-                        
-                    title = title_link.get_text(strip=True)
-                    url = title_link.get('href')
-                    
-                    # Extract snippet
-                    snippet_elem = container.find('a', class_='result__snippet')
-                    snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
-                    
-                    if title and url:
-                        # Clean up URL (DuckDuckGo sometimes wraps URLs)
-                        if url.startswith('/l/?uddg='):
-                            # Extract the actual URL from DuckDuckGo's redirect
-                            import urllib.parse
-                            url = urllib.parse.unquote(url.split('uddg=')[1].split('&')[0])
-                        
-                        results.append({
-                            'title': title,
-                            'url': url,
-                            'snippet': snippet
-                        })
-                        
-                except Exception as e:
-                    print(f"[WARN] Error parsing search result: {e}")
-                    continue
-            
-            print(f"[INFO] Found {len(results)} search results")
-            return results
-            
+            if response.status_code == 200:
+                data = response.json()
+                results = []
+                
+                # Try to extract useful information from the API response
+                if data.get('AbstractText'):
+                    results.append({
+                        'title': data.get('AbstractSource', 'DuckDuckGo'),
+                        'url': data.get('AbstractURL', ''),
+                        'snippet': data.get('AbstractText', '')
+                    })
+                
+                # Add related topics if available
+                if data.get('RelatedTopics'):
+                    for topic in data.get('RelatedTopics', [])[:num_results-1]:
+                        if isinstance(topic, dict) and topic.get('Text'):
+                            results.append({
+                                'title': topic.get('FirstURL', '').split('/')[-1].replace('_', ' ') or 'Related Topic',
+                                'url': topic.get('FirstURL', ''),
+                                'snippet': topic.get('Text', '')
+                            })
+                
+                if results:
+                    print(f"[INFO] Fallback search found {len(results)} results")
+                    return results
+        
         except Exception as e:
-            print(f"[ERROR] Web search failed: {e}")
-            return []
+            print(f"[ERROR] Fallback search failed: {e}")
+        
+        # If everything fails, return a message explaining the issue
+        return [{
+            'title': 'Search temporarily unavailable',
+            'url': '',
+            'snippet': f'Web search for "{query}" is temporarily unavailable due to rate limiting. Please try again later.'
+        }]
     
     def scrape_content(self, url: str) -> Optional[str]:
         """

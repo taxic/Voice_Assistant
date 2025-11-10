@@ -1,0 +1,83 @@
+{
+  "iot": {
+    "mqtt": {
+      "enabled": false,
+      "broker": "localhost",
+      "port": 1883,
+      "username": "",
+      "password": "",
+      "timeout": 30
+    },
+    "tuya": {
+      "enabled": false,
+      "access_id": "YOUR_TUYA_ACCESS_ID",
+      "access_secret": "YOUR_TUYA_ACCESS_SECRET",
+      "api_endpoint": "https://openapi.tuyaus.com"
+    },
+    "philips_hue": {
+      "enabled": false,
+      "bridge_ip": "192.168.1.100",
+      "username": "YOUR_HUE_USERNAME"
+    },
+    "devices": [
+      {
+        "id": "living_room_main",
+        "name": "living room light",
+        "type": "light",
+        "protocol": "philips_hue",
+        "config": {
+          "light_id": "1"
+        }
+      },
+      {
+        "id": "bedroom_main",
+        "name": "bedroom light",
+        "type": "light",
+        "protocol": "mqtt",
+        "config": {
+          "command_topic": "home/bedroom/light/set",
+          "status_topic": "home/bedroom/light/status"
+        }
+      },
+      {
+        "id": "kitchen_switch",
+        "name": "kitchen switch",
+        "type": "switch",
+        "protocol": "http",
+        "config": {
+          "base_url": "http://192.168.1.101:8080",
+          "control_endpoint": "/api/switch/control",
+          "status_endpoint": "/api/switch/status"
+        }
+      },
+      {
+        "id": "main_thermostat",
+        "name": "thermostat",
+        "type": "thermostat",
+        "protocol": "mqtt",
+        "config": {
+          "command_topic": "home/thermostat/set",
+          "status_topic": "home/thermostat/status"
+        }
+      },
+      {
+        "id": "temp_sensor_living",
+        "name": "temperature sensor",
+        "type": "sensor",
+        "protocol": "mqtt",
+        "config": {
+          "status_topic": "home/sensors/temperature"
+        }
+      },
+      {
+        "id": "motion_sensor_hall",
+        "name": "motion sensor",
+        "type": "sensor",
+        "protocol": "mqtt",
+        "config": {
+          "status_topic": "home/sensors/motion"
+        }
+      }
+    ]
+  }
+}

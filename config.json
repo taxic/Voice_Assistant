@@ -44,7 +44,7 @@
   "tts": {
     "engine": "piper",
     "piper": {
-      "voice": "en_US-ryan-high",
+      "voice": "en_GB-southern_english_female-low",
       "download_models": true,
       "models_dir": "piper/models",
       "chunk_size": 50
@@ -90,5 +90,41 @@
     "config_file": "config.json",
     "memory_file": "memory.json",
     "logs_directory": "logs"
+  },
+  "notion": {
+       "default_database_id": "25acf958599580d78a78000c720a6bf3",
+       "default_page_id": "25acf958599580cbaa86d4da2f4b37ff",
+       "timeout_seconds": 15,
+       "max_search_results": 10
+     },
+  "iot":{
+      "devices": [
+      {
+        "id": "living_room_tapo_l530",
+        "name": "lounge light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "mattpereira35@gmail.com",
+        "password": "Nignogery69/",
+        "ip": "192.168.0.40",
+        "model": "L530",
+        "config": {
+          "description": "Main living room smart light"
+        }
+      },
+      {
+        "id": "bedroom_tapo_l530",
+        "name": "bedroom light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "mattpereira35@gmail.com",
+        "password": "Nignogery69/",
+        "ip": "192.168.0.34",
+        "model": "L530",
+        "config": {
+          "description": "Bedroom smart light"
+        }
+      }
+    ]
   }
 }

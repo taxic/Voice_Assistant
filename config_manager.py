@@ -68,9 +68,9 @@ class ConfigManager:
         except (KeyError, TypeError):
             return default
     
-    def get_section(self, section: str) -> Dict[str, Any]:
+    def get_section(self, section: str, default: Any = None) -> Dict[str, Any]:
         """Get entire configuration section"""
-        return self.get(section, {})
+        return self.get(section, default or {})
     
     def set(self, key_path: str, value: Any):
         """Set configuration value using dot notation"""

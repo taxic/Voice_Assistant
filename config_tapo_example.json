@@ -1,0 +1,90 @@
+{
+  "iot": {
+    "mqtt": {
+      "enabled": false,
+      "broker": "localhost",
+      "port": 1883,
+      "username": "",
+      "password": "",
+      "timeout": 30
+    },
+    "tuya": {
+      "enabled": false,
+      "access_id": "YOUR_TUYA_ACCESS_ID",
+      "access_secret": "YOUR_TUYA_ACCESS_SECRET",
+      "api_endpoint": "https://openapi.tuyaus.com"
+    },
+    "philips_hue": {
+      "enabled": false,
+      "bridge_ip": "192.168.1.100",
+      "username": "YOUR_HUE_USERNAME"
+    },
+    "devices": [
+      {
+        "id": "living_room_tapo_l530",
+        "name": "living room light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "your_tapo_email@domain.com",
+        "password": "your_tapo_password",
+        "ip": "192.168.1.101",
+        "model": "L530",
+        "config": {
+          "description": "Main living room smart light"
+        }
+      },
+      {
+        "id": "bedroom_tapo_l510",
+        "name": "bedroom light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "your_tapo_email@domain.com",
+        "password": "your_tapo_password",
+        "ip": "192.168.1.102",
+        "model": "L510",
+        "config": {
+          "description": "Bedroom bedside lamp"
+        }
+      },
+      {
+        "id": "kitchen_tapo_l900",
+        "name": "kitchen light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "your_tapo_email@domain.com",
+        "password": "your_tapo_password",
+        "ip": "192.168.1.103",
+        "model": "L900",
+        "config": {
+          "description": "Kitchen ceiling light strip"
+        }
+      },
+      {
+        "id": "office_tapo_l530",
+        "name": "office light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "your_tapo_email@domain.com",
+        "password": "your_tapo_password",
+        "ip": "192.168.1.104",
+        "model": "L530",
+        "config": {
+          "description": "Office desk lamp"
+        }
+      },
+      {
+        "id": "hallway_tapo_l510",
+        "name": "hallway light",
+        "type": "light",
+        "protocol": "tapo",
+        "username": "your_tapo_email@domain.com",
+        "password": "your_tapo_password",
+        "ip": "192.168.1.105",
+        "model": "L510",
+        "config": {
+          "description": "Hallway motion light"
+        }
+      }
+    ]
+  }
+}

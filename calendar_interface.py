@@ -1,5 +1,5 @@
 from __future__ import print_function
-from datetime import datetime
+from datetime import datetime, timedelta
 import os.path
 import pickle
 from google.auth.transport.requests import Request
@@ -7,11 +7,16 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from google.auth.exceptions import RefreshError
 import pytz
+from typing import Optional, Dict
 from config_manager import config
+from calendar_cache_sync import CalendarCacheSync
 
 class GoogleCalendar:
     def __init__(self):
         self.service = self.authenticate()
+        # Initialize cache sync system for improved performance
+        # Pass self to avoid circular import
+        self.cache_sync = CalendarCacheSync(google_calendar=self)
 
     def authenticate(self):
         # Get calendar configuration
@@ -68,96 +73,228 @@ class GoogleCalendar:
         return build('calendar', 'v3', credentials=creds)
 
     def find_free_time_slot(self, event_duration, date_obj):
-        """Find free slots for the specified duration on a given date."""
-        # Get timezone from config
-        timezone_name = config.get('calendar.timezone', 'Europe/London')
-        tz = pytz.timezone(timezone_name)
-
-        # Fetch events for the date
-        start_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 0, 0, 0))
-        end_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 23, 59, 59))
-
-        events = self.service.events().list(
-            calendarId='primary',
-            timeMin=start_of_day.isoformat(),
-            timeMax=end_of_day.isoformat(),
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute().get('items', [])
-
-        # Define work hours and free slots list
-        work_start = start_of_day.replace(hour=9, minute=0)
-        work_end = start_of_day.replace(hour=17, minute=0)
-        free_slots = [(work_start, work_end)]
-
-        # Check availability
-        for event in events:
-            start = datetime.fromisoformat(event['start']['dateTime'])
-            end = datetime.fromisoformat(event['end']['dateTime'])
-
-            new_free_slots = []
-            for free_start, free_end in free_slots:
-                if end <= free_start or start >= free_end:
-                    new_free_slots.append((free_start, free_end))
-                else:
-                    if free_start < start:
-                        new_free_slots.append((free_start, start))
-                    if end < free_end:
-                        new_free_slots.append((end, free_end))
-            free_slots = new_free_slots
-
-        # Find slot matching the duration
-        for free_start, free_end in free_slots:
-            if (free_end - free_start).total_seconds() / 60 >= event_duration:
-                return free_start.strftime('%H:%M')
-
-        return None
+        """Find free slots for the specified duration using local cache for improved performance."""
+        # Use cache sync system for fast local access
+        return self.cache_sync.find_free_time_slot(event_duration, date_obj)
 
     def create_event(self, summary, start_time_str, end_time_str):
+        """Create event in Google Calendar and update local cache."""
         # Get timezone from config
         timezone = config.get('calendar.timezone', 'Europe/London')
-        
+
         event = {
             'summary': summary,
             'start': {'dateTime': start_time_str.isoformat(), 'timeZone': timezone},
             'end': {'dateTime': end_time_str.isoformat(), 'timeZone': timezone},
         }
 
-        event = self.service.events().insert(calendarId='primary', body=event).execute()
-        return f"The event '{event['summary']}' has been created."
+        created_event = self.service.events().insert(calendarId='primary', body=event).execute()
+
+        # Also create in local cache for immediate consistency
+        try:
+            self.cache_sync.local_db.create_event(
+                summary=summary,
+                start_time=start_time_str.isoformat(),
+                end_time=end_time_str.isoformat(),
+                provider='google',
+                google_event_id=created_event.get('id')
+            )
+        except Exception as e:
+            print(f"[WARN] Failed to update local cache for new event: {e}")
+
+        return f"The event '{created_event['summary']}' has been created."
+
+    def delete_event(self, event_id: str) -> str:
+        """Delete an event from Google Calendar and update local cache."""
+        try:
+            # Delete from Google Calendar
+            self.service.events().delete(calendarId='primary', eventId=event_id).execute()
+
+            # Also mark as deleted in local cache
+            try:
+                # Find the event in local cache by Google event ID
+                local_event = self.cache_sync.local_db.get_event_by_provider_id('google', event_id)
+                if local_event:
+                    self.cache_sync.local_db.update_event(
+                        local_event['id'],
+                        is_deleted=1,
+                        sync_status='synced',
+                        last_sync_at=datetime.now().isoformat()
+                    )
+            except Exception as e:
+                print(f"[WARN] Failed to update local cache for deleted event: {e}")
+
+            return f"Event has been deleted successfully."
+
+        except Exception as e:
+            error_msg = str(e)
+            if "notFound" in error_msg:
+                return "Event not found. It may have already been deleted."
+            else:
+                return f"Failed to delete event: {error_msg}"
+
+    def update_event(self, event_id: str, summary: str = None, start_time: str = None,
+                    end_time: str = None, description: str = None, location: str = None) -> str:
+        """Update an event in Google Calendar and local cache."""
+        try:
+            # Get the existing event
+            existing_event = self.service.events().get(calendarId='primary', eventId=event_id).execute()
+
+            # Update only the provided fields
+            if summary is not None:
+                existing_event['summary'] = summary
+            if description is not None:
+                existing_event['description'] = description
+            if location is not None:
+                existing_event['location'] = location
+            if start_time is not None or end_time is not None:
+                # Update time fields
+                if start_time is not None:
+                    existing_event['start']['dateTime'] = start_time
+                if end_time is not None:
+                    existing_event['end']['dateTime'] = end_time
+
+            # Update in Google Calendar
+            updated_event = self.service.events().update(
+                calendarId='primary',
+                eventId=event_id,
+                body=existing_event
+            ).execute()
+
+            # Also update in local cache
+            try:
+                local_event = self.cache_sync.local_db.get_event_by_provider_id('google', event_id)
+                if local_event:
+                    update_data = {
+                        'sync_status': 'synced',
+                        'last_sync_at': datetime.now().isoformat()
+                    }
+                    if summary is not None:
+                        update_data['summary'] = summary
+                    if description is not None:
+                        update_data['description'] = description
+                    if location is not None:
+                        update_data['location'] = location
+                    if start_time is not None:
+                        update_data['start_time'] = start_time
+                    if end_time is not None:
+                        update_data['end_time'] = end_time
+
+                    update_data['event_version'] = local_event.get('event_version', 1) + 1
+                    self.cache_sync.local_db.update_event(local_event['id'], **update_data)
+            except Exception as e:
+                print(f"[WARN] Failed to update local cache for modified event: {e}")
+
+            return f"The event '{updated_event.get('summary', 'Untitled')}' has been updated."
+
+        except Exception as e:
+            error_msg = str(e)
+            if "notFound" in error_msg:
+                return "Event not found. It may have already been deleted."
+            else:
+                return f"Failed to update event: {error_msg}"
+
+    def find_event_by_summary(self, summary: str, date_obj: datetime = None) -> Optional[Dict]:
+        """Find an event by its summary/title, optionally filtered by date."""
+        try:
+            # Get events for the specified date or next 7 days
+            if date_obj:
+                start_date = date_obj
+                end_date = date_obj
+            else:
+                start_date = datetime.now()
+                end_date = start_date + timedelta(days=7)
+
+            tz = pytz.timezone(config.get('calendar.timezone', 'Europe/London'))
+            start_datetime = tz.localize(datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0))
+            end_datetime = tz.localize(datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59))
+
+            events_result = self.service.events().list(
+                calendarId='primary',
+                timeMin=start_datetime.isoformat(),
+                timeMax=end_datetime.isoformat(),
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            events = events_result.get('items', [])
+
+            # Find events matching the summary (case-insensitive partial match)
+            matching_events = []
+            for event in events:
+                event_summary = event.get('summary', '').lower()
+                if summary.lower() in event_summary:
+                    matching_events.append(event)
+
+            return matching_events
+
+        except Exception as e:
+            print(f"[ERROR] Failed to find event by summary: {e}")
+            return None
+
+    def list_upcoming_events(self, max_results: int = 10) -> str:
+        """List upcoming events for easy reference."""
+        try:
+            # Get events for the next 7 days
+            start_date = datetime.now()
+            end_date = start_date + timedelta(days=7)
+
+            tz = pytz.timezone(config.get('calendar.timezone', 'Europe/London'))
+            start_datetime = tz.localize(datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0))
+            end_datetime = tz.localize(datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59))
+
+            events_result = self.service.events().list(
+                calendarId='primary',
+                timeMin=start_datetime.isoformat(),
+                timeMax=end_datetime.isoformat(),
+                singleEvents=True,
+                orderBy='startTime',
+                maxResults=max_results
+            ).execute()
+
+            events = events_result.get('items', [])
+
+            if not events:
+                return "No upcoming events found."
+
+            response_lines = ["Here are your upcoming events:"]
+            for i, event in enumerate(events, 1):
+                start = event['start'].get('dateTime', event['start'].get('date'))
+                if 'T' in start:
+                    start_time = datetime.fromisoformat(start.replace('Z', '+00:00')).strftime('%A %H:%M')
+                else:
+                    start_time = f"All day on {start}"
+
+                summary = event.get('summary', 'Untitled Event')
+                response_lines.append(f"{i}. {summary} - {start_time}")
+
+            return "\n".join(response_lines)
+
+        except Exception as e:
+            return f"Failed to retrieve upcoming events: {str(e)}"
+
+    # Cache management methods
+    def refresh_cache(self):
+        """Force refresh the local cache with Google Calendar data."""
+        return self.cache_sync.force_refresh_cache()
+
+    def get_cache_status(self):
+        """Get current cache synchronization status."""
+        return self.cache_sync.get_sync_status()
+
+    def cleanup_cache(self, days_to_keep: int = 30):
+        """Clean up old events from cache."""
+        return self.cache_sync.cleanup_cache(days_to_keep)
+
+    def export_cache(self, format: str = 'json'):
+        """Export cached events."""
+        return self.cache_sync.export_cache(format)
+
+    def import_cache(self, data: str, format: str = 'json'):
+        """Import events into cache."""
+        return self.cache_sync.import_cache(data, format)
 
     def get_events_for_date(self, date_obj):
-        """Retrieve all events for a specific date (datetime object)."""
-        # Get timezone from config
-        timezone_name = config.get('calendar.timezone', 'Europe/London')
-        
-        # Define start and end of the day in RFC3339 format
-        tz = pytz.timezone(timezone_name)
-        start_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 0, 0, 0))
-        end_of_day = tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 23, 59, 59))
-
-        events_result = self.service.events().list(
-            calendarId='primary',
-            timeMin=start_of_day.isoformat(),
-            timeMax=end_of_day.isoformat(),
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-
-        events = events_result.get('items', [])
-
-        if not events:
-            if date_obj.strftime('%A') == datetime.now().strftime('%A'):
-                return "You have no events today."
-            else:
-                return f"You have no events on {date_obj.strftime('%A')}."
-
-        response_lines = [f"Here are your events on {date_obj.strftime('%A')}:"]
-
-        for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            start_time = datetime.fromisoformat(start).strftime('%H:%M') if 'T' in start else "All-day"
-            summary = event.get('summary', 'No Title')
-            response_lines.append(f"• {summary} at {start_time}")
-
-        return "\n".join(response_lines)
+        """Retrieve all events for a specific date using local cache for improved performance."""
+        # Use cache sync system for fast local access
+        return self.cache_sync.get_events_for_date(date_obj)
