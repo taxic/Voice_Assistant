@@ -99,32 +99,6 @@
      },
   "iot":{
       "devices": [
-      {
-        "id": "living_room_tapo_l530",
-        "name": "lounge light",
-        "type": "light",
-        "protocol": "tapo",
-        "username": "mattpereira35@gmail.com",
-        "password": "Nignogery69/",
-        "ip": "192.168.0.40",
-        "model": "L530",
-        "config": {
-          "description": "Main living room smart light"
-        }
-      },
-      {
-        "id": "bedroom_tapo_l530",
-        "name": "bedroom light",
-        "type": "light",
-        "protocol": "tapo",
-        "username": "mattpereira35@gmail.com",
-        "password": "Nignogery69/",
-        "ip": "192.168.0.34",
-        "model": "L530",
-        "config": {
-          "description": "Bedroom smart light"
-        }
-      }
     ]
   }
 }
