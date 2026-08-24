@@ -107,9 +107,12 @@ class ConfigManager:
         """Return default configuration if file loading fails"""
         return {
             "llm": {
-                "model": "mistral",
-                "timeout_seconds": 30,
-                "ollama_command": "ollama"
+                "model": "qwen2.5:7b-instruct",
+                "host": "http://localhost:11434",
+                "timeout_seconds": 60,
+                "keep_alive": "10m",
+                "num_ctx": 4096,
+                "max_history_messages": 20
             },
             "weather": {
                 "default_location": "Guildford",
