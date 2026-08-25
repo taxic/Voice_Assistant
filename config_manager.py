@@ -107,9 +107,15 @@ class ConfigManager:
         """Return default configuration if file loading fails"""
         return {
             "llm": {
-                "model": "mistral",
-                "timeout_seconds": 30,
-                "ollama_command": "ollama"
+                "model": "qwen2.5:7b-instruct",
+                "host": "http://localhost:11434",
+                "timeout_seconds": 60,
+                "keep_alive": "10m",
+                "num_ctx": 4096,
+                "max_history_messages": 20,
+                "agent_max_rounds": 4,
+                "embed_model": "nomic-embed-text",
+                "embed_timeout_seconds": 30
             },
             "weather": {
                 "default_location": "Guildford",
@@ -154,7 +160,6 @@ class ConfigManager:
                 "short_term_max_items": 50,
                 "short_term_context_limit": 10,
                 "long_term_context_limit": 5,
-                "long_term_threshold": 7,
                 "importance_decay_days": 30,
                 "auto_summarize_threshold": 100
             },
@@ -177,7 +182,7 @@ class ConfigManager:
             },
             "paths": {
                 "config_file": "config.json",
-                "memory_file": "memory.json",
+                "memory_file": "memory.db",
                 "logs_directory": "logs"
             }
         }

@@ -2,13 +2,16 @@
 
 import sqlite3
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Optional, Any
-import re
 import hashlib
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from collections import deque
+
+import numpy as np
+
 from config_manager import config
+from ollama_client import embed as ollama_embed
 
 @dataclass
 class MemoryItem:
@@ -79,17 +82,32 @@ class EnhancedMemory:
         self.db_name = db_name
         self.conn = sqlite3.connect(db_name)
         self.cursor = self.conn.cursor()
-        
+
         # Short-term memory (current session)
         self.short_term_memory = deque(maxlen=config.get('memory.short_term_max_items', 50))
         self.current_session_id = self._generate_session_id()
         self.conversation_context = ConversationContext()
-        
+
+        # Embedding config for semantic memory search. Kept optional at every
+        # call site - if the embed model isn't pulled or Ollama isn't
+        # reachable, everything falls back to the old keyword search instead
+        # of failing.
+        self.embed_model = config.get('llm.embed_model', 'nomic-embed-text')
+        self.embed_host = config.get('llm.host', 'http://localhost:11434').rstrip('/')
+        self.embed_timeout = config.get('llm.embed_timeout_seconds', 30)
+        self.embed_keep_alive = config.get('llm.keep_alive', '10m')
+
         # Initialize database
         self._create_tables()
-        
+        self._migrate_schema()
+
         # Load recent context on startup
         self._load_recent_context()
+
+        # Best-effort: embed any rows that don't have a vector yet (new
+        # columns on an existing DB, or rows saved while Ollama/the embed
+        # model was unavailable). No-op once everything is embedded.
+        self._backfill_embeddings()
     
     def _generate_session_id(self) -> str:
         """Generate unique session ID"""
@@ -160,7 +178,23 @@ class EnhancedMemory:
         """)
         
         self.conn.commit()
-    
+
+    def _migrate_schema(self):
+        """Add the embedding column to tables that predate semantic search.
+
+        CREATE TABLE IF NOT EXISTS above won't add columns to a table that
+        already exists, so this runs an ALTER TABLE for any DB created before
+        this change. Safe to call every startup - checks column presence
+        first, so it's a no-op once a DB has been migrated.
+        """
+        for table in ("interactions", "long_term_memory"):
+            self.cursor.execute(f"PRAGMA table_info({table})")
+            columns = {row[1] for row in self.cursor.fetchall()}
+            if "embedding" not in columns:
+                print(f"[INFO] Migrating {self.db_name}: adding embedding column to {table}")
+                self.cursor.execute(f"ALTER TABLE {table} ADD COLUMN embedding BLOB")
+        self.conn.commit()
+
     def _load_recent_context(self):
         """Load recent conversation context"""
         # Load recent interactions into short-term memory
@@ -184,8 +218,86 @@ class EnhancedMemory:
                 metadata=json.loads(row[7]) if row[7] else {}
             )
             self.short_term_memory.appendleft(interaction)
-    
-    def save_interaction(self, user_input: str, response: str, context_type: str = "general", 
+
+    # --- Embedding helpers for semantic memory search ---------------------
+    # Every call site here is best-effort: on any failure (Ollama down, the
+    # embed model not pulled, a bad response) these return None instead of
+    # raising, and callers fall back to the old LIKE-based search.
+
+    @staticmethod
+    def _batched(items: list, size: int = 64):
+        for i in range(0, len(items), size):
+            yield items[i:i + size]
+
+    def _embed_texts(self, texts: List[str]) -> Optional[List[bytes]]:
+        """Embed a batch of texts, returning one BLOB per text in order, or
+        None for the whole batch if embedding isn't available right now."""
+        if not texts:
+            return []
+        try:
+            blobs = []
+            for chunk in self._batched(texts):
+                vectors = ollama_embed(
+                    chunk, model=self.embed_model, host=self.embed_host,
+                    timeout=self.embed_timeout, keep_alive=self.embed_keep_alive,
+                )
+                blobs.extend(np.asarray(v, dtype=np.float32).tobytes() for v in vectors)
+            return blobs
+        except Exception as e:
+            print(f"[WARN] Embedding unavailable ({e}). Falling back to keyword search. "
+                  f"Run `ollama pull {self.embed_model}` if you haven't.")
+            return None
+
+    def _embed_text(self, text: str) -> Optional[bytes]:
+        blobs = self._embed_texts([text])
+        return blobs[0] if blobs else None
+
+    def _embed_query(self, query: str) -> Optional[np.ndarray]:
+        if not query:
+            return None
+        blob = self._embed_text(query)
+        return np.frombuffer(blob, dtype=np.float32) if blob else None
+
+    @staticmethod
+    def _rank_by_similarity(query_vector: np.ndarray, rows: List[tuple], limit: int) -> List[tuple]:
+        """rows: raw sqlite rows where the LAST column is the embedding BLOB
+        (or None). Returns the top `limit` rows by cosine similarity,
+        excluding rows with no embedding yet."""
+        scored = []
+        for row in rows:
+            blob = row[-1]
+            if not blob:
+                continue
+            vec = np.frombuffer(blob, dtype=np.float32)
+            scored.append((float(np.dot(query_vector, vec)), row))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [row for _, row in scored[:limit]]
+
+    def _backfill_embeddings(self):
+        self._backfill_table("interactions", "id", ["user_input", "response"])
+        self._backfill_table("long_term_memory", "id", ["title", "content"])
+
+    def _backfill_table(self, table: str, id_col: str, text_cols: List[str]):
+        col_list = ", ".join(text_cols)
+        self.cursor.execute(f"SELECT {id_col}, {col_list} FROM {table} WHERE embedding IS NULL")
+        rows = self.cursor.fetchall()
+        if not rows:
+            return
+
+        ids = [row[0] for row in rows]
+        texts = ["\n".join(str(v) for v in row[1:]) for row in rows]
+
+        blobs = self._embed_texts(texts)
+        if blobs is None:
+            print(f"[WARN] Skipping embedding backfill for {len(rows)} row(s) in {table} for now.")
+            return
+
+        for row_id, blob in zip(ids, blobs):
+            self.cursor.execute(f"UPDATE {table} SET embedding = ? WHERE {id_col} = ?", (blob, row_id))
+        self.conn.commit()
+        print(f"[INFO] Backfilled embeddings for {len(rows)} row(s) in {table}.")
+
+    def save_interaction(self, user_input: str, response: str, context_type: str = "general",
                         importance: int = 1, tags: List[str] = None, metadata: Dict = None):
         """Save an interaction to both short-term and persistent memory"""
         
@@ -208,12 +320,14 @@ class EnhancedMemory:
         
         # Add to short-term memory
         self.short_term_memory.append(interaction)
-        
+
+        embedding = self._embed_text(f"{user_input}\n{response}")
+
         # Save to database
         self.cursor.execute("""
-            INSERT INTO interactions 
-            (timestamp, user_input, response, context_type, session_id, importance, tags, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO interactions
+            (timestamp, user_input, response, context_type, session_id, importance, tags, metadata, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             interaction.timestamp,
             interaction.user_input,
@@ -222,17 +336,14 @@ class EnhancedMemory:
             interaction.session_id,
             interaction.importance,
             json.dumps(interaction.tags),
-            json.dumps(interaction.metadata)
+            json.dumps(interaction.metadata),
+            embedding
         ))
-        
+
         self.conn.commit()
-        
+
         # Update conversation context
         self._update_conversation_context(user_input, response, context_type)
-        
-        # Check if this should become long-term memory
-        if importance >= config.get('memory.long_term_threshold', 7):
-            self._promote_to_long_term(interaction, metadata)
     
     def _update_conversation_context(self, user_input: str, response: str, context_type: str):
         """Update the current conversation context"""
@@ -285,20 +396,6 @@ class EnhancedMemory:
         else:
             return "General conversation"
     
-    def _promote_to_long_term(self, interaction: Interaction, metadata: Dict):
-        """Promote important interaction to long-term memory"""
-        title = f"Important: {interaction.user_input[:50]}..."
-        content = f"User: {interaction.user_input}\nAssistant: {interaction.response}"
-        
-        self.save_long_term_memory(
-            title=title,
-            content=content,
-            category=interaction.context_type,
-            importance=interaction.importance,
-            tags=interaction.tags,
-            metadata=metadata
-        )
-    
     def save_long_term_memory(self, title: str, content: str, category: str = "general",
                              importance: int = 5, tags: List[str] = None, 
                              metadata: Dict = None, related_items: List[int] = None):
@@ -322,10 +419,12 @@ class EnhancedMemory:
             related_items=related_items
         )
         
+        embedding = self._embed_text(f"{title}\n{content}")
+
         self.cursor.execute("""
-            INSERT INTO long_term_memory 
-            (timestamp, title, content, category, importance, tags, metadata, related_items)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO long_term_memory
+            (timestamp, title, content, category, importance, tags, metadata, related_items, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             ltm.timestamp,
             ltm.title,
@@ -334,9 +433,10 @@ class EnhancedMemory:
             ltm.importance,
             json.dumps(ltm.tags),
             json.dumps(ltm.metadata),
-            json.dumps(ltm.related_items)
+            json.dumps(ltm.related_items),
+            embedding
         ))
-        
+
         self.conn.commit()
         return self.cursor.lastrowid
     
@@ -406,51 +506,66 @@ class EnhancedMemory:
         context += "\n=== End Long-term Memory ===\n\n"
         return context
     
+    @staticmethod
+    def _row_to_long_term_dict(row: tuple) -> Dict:
+        return {
+            'id': row[0],
+            'timestamp': row[1],
+            'title': row[2],
+            'content': row[3],
+            'category': row[4],
+            'importance': row[5],
+            'tags': json.loads(row[6]) if row[6] else [],
+            'metadata': json.loads(row[7]) if row[7] else {},
+            'related_items': json.loads(row[8]) if row[8] else []
+        }
+
     def search_long_term_memory(self, query: str, limit: int = 10) -> List[Dict]:
-        """Search long-term memory"""
+        """Search long-term memory semantically, falling back to keyword
+        (LIKE) search if embeddings aren't available right now."""
+        query_vector = self._embed_query(query)
+        if query_vector is not None:
+            self.cursor.execute("""
+                SELECT id, timestamp, title, content, category, importance, tags, metadata, related_items, embedding
+                FROM long_term_memory
+            """)
+            top_rows = self._rank_by_similarity(query_vector, self.cursor.fetchall(), limit)
+            if top_rows:
+                return [self._row_to_long_term_dict(row) for row in top_rows]
+            # Nothing has an embedding yet (e.g. backfill hasn't run) - fall
+            # through to keyword search instead of returning nothing.
+
+        return self._keyword_search_long_term_memory(query, limit)
+
+    def _keyword_search_long_term_memory(self, query: str, limit: int = 10) -> List[Dict]:
+        """Original LIKE-based search - used when embeddings are unavailable."""
         search_terms = query.lower().split()
-        
+
         where_conditions = []
         params = []
-        
+
         for term in search_terms:
             where_conditions.append("""
-                (LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR 
+                (LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR
                  LOWER(category) LIKE ? OR LOWER(tags) LIKE ?)
             """)
             params.extend([f"%{term}%", f"%{term}%", f"%{term}%", f"%{term}%"])
-        
+
         where_clause = " AND ".join(where_conditions)
-        
+
         query_sql = f"""
             SELECT id, timestamp, title, content, category, importance, tags, metadata, related_items
-            FROM long_term_memory 
+            FROM long_term_memory
             WHERE {where_clause}
-            ORDER BY importance DESC, timestamp DESC 
+            ORDER BY importance DESC, timestamp DESC
             LIMIT ?
         """
-        
+
         params.append(limit)
-        
+
         self.cursor.execute(query_sql, params)
-        rows = self.cursor.fetchall()
-        
-        results = []
-        for row in rows:
-            results.append({
-                'id': row[0],
-                'timestamp': row[1],
-                'title': row[2],
-                'content': row[3],
-                'category': row[4],
-                'importance': row[5],
-                'tags': json.loads(row[6]) if row[6] else [],
-                'metadata': json.loads(row[7]) if row[7] else {},
-                'related_items': json.loads(row[8]) if row[8] else []
-            })
-        
-        return results
-    
+        return [self._row_to_long_term_dict(row) for row in self.cursor.fetchall()]
+
     def get_recent_long_term_memory(self, limit: int = 5) -> List[Dict]:
         """Get recent important long-term memories"""
         self.cursor.execute("""
@@ -505,46 +620,59 @@ class EnhancedMemory:
         """Backward compatibility with old memory interface"""
         return self.get_short_term_context(limit)
     
+    @staticmethod
+    def _row_to_interaction_dict(row: tuple) -> Dict:
+        return {
+            'id': row[0],
+            'timestamp': row[1],
+            'user_input': row[2],
+            'response': row[3],
+            'context_type': row[4],
+            'importance': row[5],
+            'tags': json.loads(row[6]) if row[6] else []
+        }
+
     def search_conversations(self, query: str, limit: int = 10) -> List[Dict]:
-        """Search historical conversations"""
+        """Search historical conversations semantically, falling back to
+        keyword (LIKE) search if embeddings aren't available right now."""
+        query_vector = self._embed_query(query)
+        if query_vector is not None:
+            self.cursor.execute("""
+                SELECT id, timestamp, user_input, response, context_type, importance, tags, embedding
+                FROM interactions
+            """)
+            top_rows = self._rank_by_similarity(query_vector, self.cursor.fetchall(), limit)
+            if top_rows:
+                return [self._row_to_interaction_dict(row) for row in top_rows]
+
+        return self._keyword_search_conversations(query, limit)
+
+    def _keyword_search_conversations(self, query: str, limit: int = 10) -> List[Dict]:
+        """Original LIKE-based search - used when embeddings are unavailable."""
         search_terms = query.lower().split()
-        
+
         where_conditions = []
         params = []
-        
+
         for term in search_terms:
             where_conditions.append("(LOWER(user_input) LIKE ? OR LOWER(response) LIKE ?)")
             params.extend([f"%{term}%", f"%{term}%"])
-        
+
         where_clause = " AND ".join(where_conditions)
-        
+
         query_sql = f"""
             SELECT id, timestamp, user_input, response, context_type, importance, tags
-            FROM interactions 
+            FROM interactions
             WHERE {where_clause}
-            ORDER BY importance DESC, timestamp DESC 
+            ORDER BY importance DESC, timestamp DESC
             LIMIT ?
         """
-        
+
         params.append(limit)
-        
+
         self.cursor.execute(query_sql, params)
-        rows = self.cursor.fetchall()
-        
-        results = []
-        for row in rows:
-            results.append({
-                'id': row[0],
-                'timestamp': row[1],
-                'user_input': row[2],
-                'response': row[3],
-                'context_type': row[4],
-                'importance': row[5],
-                'tags': json.loads(row[6]) if row[6] else []
-            })
-        
-        return results
-    
+        return [self._row_to_interaction_dict(row) for row in self.cursor.fetchall()]
+
     def start_new_session(self):
         """Start a new conversation session"""
         # Save current session context

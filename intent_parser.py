@@ -2,9 +2,9 @@
 
 import re
 import json
-import subprocess
 from datetime import datetime
 from config_manager import config
+from ollama_client import stream_chat
 
 # Optional NLTK import with fallback
 try:
@@ -19,8 +19,10 @@ except ImportError:
 class IntentParser:
     def __init__(self, llm_model=None):
         # Use config for model if not specified
-        self.llm_model = llm_model or config.get('llm.model', 'mistral')
-        self.ollama_command = config.get('llm.ollama_command', 'ollama')
+        self.llm_model = llm_model or config.get('llm.model', 'qwen2.5:7b-instruct')
+        self.host = config.get('llm.host', 'http://localhost:11434').rstrip('/')
+        self.timeout = config.get('llm.timeout_seconds', 60)
+        self.keep_alive = config.get('llm.keep_alive', '10m')
         # Define intent categories and their descriptions
         self.intent_definitions = {
             "get_weather": "User wants to know about weather conditions, temperature, forecast, or climate information for a location",
@@ -126,23 +128,19 @@ Respond with ONLY the intent name (e.g., "get_weather", "calendar_add", etc.). I
 
 Intent:"""
             
-            result = subprocess.run(
-                [self.ollama_command, "run", self.llm_model],
-                input=prompt,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=config.get('llm.timeout_seconds', 30)
+            result = stream_chat(
+                [{"role": "user", "content": prompt}],
+                model=self.llm_model,
+                host=self.host,
+                timeout=self.timeout,
+                keep_alive=self.keep_alive,
             )
-            
-            if result.returncode == 0:
-                intent = result.stdout.strip().lower()
-                # Validate the intent is in our known set
-                if intent in self.intent_definitions:
-                    return intent
-                    
+
+            intent = result.strip().lower()
+            # Validate the intent is in our known set
+            if intent in self.intent_definitions:
+                return intent
+
         except Exception as e:
             print(f"[WARN] LLM intent parsing failed: {e}")
         
