@@ -78,9 +78,12 @@ pip install -r requirements.txt
 
 ```bash
 ollama pull qwen2.5:7b-instruct
+ollama pull nomic-embed-text
 ```
 
-This is the default model (`llm.model` in `config.json`), chosen to fit comfortably in 6GB of VRAM (~4.7GB at Q4_K_M) while still supporting native tool/function calling, which the assistant relies on. If you have more VRAM to spare, a larger Qwen2.5 or Llama 3.3 model will reason better - just `ollama pull` it and update `llm.model` to match.
+The first is the default chat model (`llm.model` in `config.json`), chosen to fit comfortably in 6GB of VRAM (~4.7GB at Q4_K_M) while still supporting native tool/function calling, which the assistant relies on. If you have more VRAM to spare, a larger Qwen2.5 or Llama 3.3 model will reason better - just `ollama pull` it and update `llm.model` to match.
+
+The second (`llm.embed_model`) is a small, separate model used only for semantic memory search - it's tiny (~274MB) and doesn't compete for VRAM with the chat model. Not strictly required to start the assistant - if it's missing, memory search just falls back to plain keyword matching instead of failing.
 
 ## 🎯 Usage
 
@@ -150,10 +153,12 @@ You can interrupt the assistant at any time by saying:
 
 The assistant maintains conversation context using:
 - **Recent Memory**: Last 5-50 interactions (configurable)
-- **Contextual Search**: Semantic search through conversation history
+- **Contextual Search**: Real semantic search via embeddings (Ollama's `nomic-embed-text`), not keyword matching - stored interactions and long-term memories are ranked by cosine similarity to the query, so phrasing doesn't need to match what was originally said. Falls back to keyword (`LIKE`) search automatically if the embed model isn't pulled or Ollama is unreachable.
 - **Categorized Storage**: Different types of interactions (weather, calendar, etc.)
-- **Importance Scoring**: Automatic prioritization of important information
-- **Auto-summarization**: Memory compression for long conversations
+- **Importance Scoring**: A 1-10 field on every stored item, used to rank results - set explicitly (e.g. the assistant's own `save_memory` tool saves at high importance), not computed automatically from content
+- **Auto-summarization**: Not yet real - the current "conversation summary" is a placeholder that just lists recent topic labels, not an actual LLM-generated summary. Known gap, not yet fixed.
+
+Run `ollama pull nomic-embed-text` alongside your chat model - semantic search needs it separately.
 
 #### Memory Configuration
 ```json
@@ -164,9 +169,12 @@ The assistant maintains conversation context using:
     "short_term_max_items": 50,
     "short_term_context_limit": 10,
     "long_term_context_limit": 5,
-    "long_term_threshold": 7,
     "importance_decay_days": 30,
     "auto_summarize_threshold": 100
+  },
+  "llm": {
+    "embed_model": "nomic-embed-text",
+    "embed_timeout_seconds": 30
   }
 }
 ```
@@ -286,14 +294,13 @@ Assistant/
 ├── intent_parser.py           # Intent classification and parsing
 ├── command_parser.py          # Command parsing utilities
 ├── calendar_interface.py      # Google Calendar integration
-├── memory.py                  # Conversation memory management
+├── enhanced_memory.py         # Conversation memory + semantic search (memory.db)
 ├── settings_gui.py            # Settings and device management GUI
 ├── tapo_light_wrapper.py      # Tapo smart light control
 ├── iot_manager.py            # IoT device management
 ├── iot_commands.py           # IoT command processing
 ├── piper_tts.py             # Piper TTS implementation
 ├── web_search.py            # Web search functionality
-├── memory_system.py         # Enhanced memory system
 ├── smart_event_times.py     # Smart calendar time suggestions
 ├── notion_interface.py      # Notion API integration
 ├── spotify_interface.py     # Spotify integration
@@ -350,9 +357,9 @@ All configurable in `config.json` under `llm`:
 - `system_prompt`: Optional override for the assistant's personality/instructions
 
 ### Memory System
-- Database: `memory.json` (JSON storage)
+- Database: `memory.db` (SQLite - despite the old filename, this was never actually JSON) - not tracked in git, see `.gitignore`
+- Semantic search via `nomic-embed-text` embeddings, with keyword fallback - see `llm.embed_model` above
 - Context limits: Configurable per memory type
-- Automatic cleanup and categorization
 
 ### Audio Settings
 - TTS: Piper neural synthesis
@@ -431,7 +438,7 @@ python test_audio_format.py
 python test_piper_optimization.py
 
 # Test memory system
-python -c "from memory_system import *; test_memory()"
+python -c "from enhanced_memory import EnhancedMemory; m = EnhancedMemory(); print(m.get_memory_stats()); m.close()"
 ```
 
 ## 📊 System Status
@@ -544,12 +551,12 @@ This software incorporates several open-source components under their respective
 - Full System Test: `python test_improvements.py`
 - IoT Control Test: `python test_smart_bulb_integration.py`
 - Audio Test: `python test_audio_format.py`
-- Memory Test: `python -c "from memory_system import test_memory; test_memory()"`
+- Memory Test: `python -c "from enhanced_memory import EnhancedMemory; m = EnhancedMemory(); print(m.get_memory_stats()); m.close()"`
 
 ### **Configuration Files**
 - Main Config: `config.json`
 - Calendar Credentials: `credentials.json`
-- Memory Data: `memory.json`
+- Memory Data: `memory.db` (SQLite, gitignored)
 - Spotify Cache: `.spotify_cache`
 
 ### **Model Files**
