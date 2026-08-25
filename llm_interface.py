@@ -21,7 +21,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "answer a multi-part request. Don't narrate that you're 'using a tool' - "
     "just do it and report the outcome like a competent assistant would. If "
     "a request is ambiguous (e.g. which of several matching events), ask a "
-    "short clarifying question instead of guessing."
+    "short clarifying question instead of guessing.\n\n"
+    "Use save_memory proactively, not just when explicitly told to remember "
+    "something. When the user reveals a durable fact about themselves - a "
+    "preference, a recurring commitment, a name, something they'd expect you "
+    "to already know next time - save it right then, without asking "
+    "permission or announcing that you're doing it. Don't save one-off, "
+    "situational details (what they want for lunch today) or anything "
+    "already covered by a calendar/task tool."
 )
 
 
