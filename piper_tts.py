@@ -1,5 +1,6 @@
 # piper_tts.py
 
+import json
 import os
 import subprocess
 import tempfile
@@ -8,10 +9,11 @@ import zipfile
 import platform
 from pathlib import Path
 import time
-import threading
-import queue
 from config_manager import config
+from sentence_stream import split_sentences
 
+import numpy as np
+import sounddevice as sd
 
 
 class PiperTTS:
@@ -19,8 +21,6 @@ class PiperTTS:
         self.voice_recognizer = voice_recognizer
         self.is_speaking = False
         self.interrupt_requested = False
-        self.speech_thread = None
-        self.speech_queue = queue.Queue()
 
         # Piper settings
         self.piper_dir = Path.cwd() / "piper"
@@ -28,6 +28,7 @@ class PiperTTS:
         self.piper_executable = None
         self.current_model = None
         self.current_config = None
+        self.sample_rate = 22050  # overwritten from the voice config once loaded
 
         # Default voice settings - British English female voice
         self.default_voice = config.get('tts.voice', 'en_GB-southern_english_female-low')
@@ -111,6 +112,7 @@ class PiperTTS:
         if model_path.exists() and config_path.exists():
             self.current_model = str(model_path)
             self.current_config = str(config_path)
+            self._load_sample_rate()
             return
 
         print(f"[INFO] Downloading voice model: {voice_name}...")
@@ -137,6 +139,7 @@ class PiperTTS:
 
             self.current_model = str(model_path)
             self.current_config = str(config_path)
+            self._load_sample_rate()
 
             print(f"[INFO] Voice model downloaded: {voice_name}")
 
@@ -144,126 +147,102 @@ class PiperTTS:
             print(f"[ERROR] Failed to download voice model {voice_name}: {e}")
             raise
 
+    def _load_sample_rate(self):
+        """Read the voice's sample rate from its .onnx.json config, needed
+        to play back the raw PCM Piper outputs at the correct speed/pitch."""
+        try:
+            with open(self.current_config, 'r', encoding='utf-8') as f:
+                voice_config = json.load(f)
+            self.sample_rate = voice_config['audio']['sample_rate']
+        except Exception as e:
+            print(f"[WARN] Could not read sample rate from voice config ({e}), defaulting to 22050Hz")
+            self.sample_rate = 22050
+
     def speak(self, text, check_interrupts=True):
-        """Speak text with optional interrupt checking"""
+        """Speak text, sentence by sentence, with optional interrupt checking"""
         print(f"[Jarvis]: {text}")
 
         if not self.piper_executable or not self.current_model:
             print("[WARN] Piper not available, text output only")
             return
 
-        if not check_interrupts:
-            # Simple non-interruptible speech
-            self._synthesize_and_play(text)
-            return
-
-        # Interruptible speech
         self.interrupt_requested = False
         self.is_speaking = True
 
-        # Start interrupt detection if voice recognizer is available
-        if self.voice_recognizer:
+        if check_interrupts and self.voice_recognizer:
             self.voice_recognizer.start_interrupt_detection()
 
-        # Split text into chunks for more responsive interruption
-        chunks = self._split_text_into_chunks(text)
-
         try:
-            for chunk in chunks:
-                if self.interrupt_requested or (self.voice_recognizer and self.voice_recognizer.check_interrupt()):
+            for sentence in split_sentences(text):
+                if self._should_stop(check_interrupts):
                     print("[INFO] Speech interrupted")
                     break
-
-                self._synthesize_and_play(chunk)
-
-                # Small pause between chunks to check for interrupts
-                time.sleep(0.1)
-
+                self._synthesize_and_play(sentence)
         except Exception as e:
             print(f"[ERROR] TTS error: {e}")
         finally:
             self.is_speaking = False
-            if self.voice_recognizer:
+            if check_interrupts and self.voice_recognizer:
                 self.voice_recognizer.stop_interrupt_detection()
                 self.voice_recognizer.clear_interrupt()
 
-    def _synthesize_and_play(self, text):
-        """Synthesize text to speech and play it"""
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                wav_path = tmp_file.name
+    def _should_stop(self, check_interrupts):
+        if not check_interrupts:
+            return False
+        return bool(self.interrupt_requested or (self.voice_recognizer and self.voice_recognizer.check_interrupt()))
 
-            # Use Piper to synthesize speech
+    def _synthesize_and_play(self, text):
+        """Synthesize one sentence to raw PCM and play it - no temp files,
+        no second subprocess for playback (see _play_raw_audio)."""
+        try:
             cmd = [
                 self.piper_executable,
                 "--model", self.current_model,
-                "--output_file", wav_path
+                "--config", self.current_config,
+                "--output-raw",
             ]
 
-            # Run Piper subprocess
             process = subprocess.run(
                 cmd,
-                input=text,
-                text=True,
+                input=text.encode("utf-8"),
                 capture_output=True,
-                timeout=30
+                timeout=30,
             )
 
             if process.returncode != 0:
-                print(f"[ERROR] Piper failed: {process.stderr}")
+                print(f"[ERROR] Piper failed: {process.stderr.decode(errors='replace')}")
                 return
 
-            # Play the generated audio file
-            self._play_wav_file(wav_path)
+            self._play_raw_audio(process.stdout)
 
-            # Clean up temporary file
-            os.unlink(wav_path)
-
+        except subprocess.TimeoutExpired:
+            print("[ERROR] Piper synthesis timed out")
         except Exception as e:
             print(f"[ERROR] Speech synthesis failed: {e}")
 
-    def _play_wav_file(self, wav_path):
-        """Play a WAV file using the system's default audio player"""
+    def _play_raw_audio(self, raw_pcm_bytes):
+        """Play 16-bit mono PCM bytes (Piper's --output-raw format) directly
+        via sounddevice - in-process, no player subprocess, and genuinely
+        interruptible mid-playback via sd.stop() from another thread."""
+        if not raw_pcm_bytes:
+            return
         try:
-            if platform.system() == "Windows":
-                # Use Windows Media Player or similar
-                subprocess.run(["powershell", "-c", f"(New-Object Media.SoundPlayer '{wav_path}').PlaySync()"],
-                             check=True, capture_output=True)
-            else:
-                # For other systems, try common audio players
-                for player in ["aplay", "paplay", "play", "afplay"]:
-                    try:
-                        subprocess.run([player, wav_path], check=True, capture_output=True)
-                        break
-                    except (subprocess.CalledProcessError, FileNotFoundError):
-                        continue
-                else:
-                    print("[WARN] No suitable audio player found")
+            audio = np.frombuffer(raw_pcm_bytes, dtype=np.int16)
+            sd.play(audio, samplerate=self.sample_rate)
+            sd.wait()
         except Exception as e:
             print(f"[ERROR] Failed to play audio: {e}")
 
-    def _split_text_into_chunks(self, text, max_chunk_size=50):
-        """Split text into smaller chunks for more responsive interruption"""
-        words = text.split()
-        chunks = []
-        current_chunk = []
-
-        for word in words:
-            current_chunk.append(word)
-            if len(' '.join(current_chunk)) > max_chunk_size:
-                chunks.append(' '.join(current_chunk))
-                current_chunk = []
-
-        if current_chunk:
-            chunks.append(' '.join(current_chunk))
-
-        return chunks if chunks else [text]
-
     def interrupt(self):
-        """Request speech interruption"""
+        """Request speech interruption - stops audio immediately, not just
+        at the next sentence boundary."""
         self.interrupt_requested = True
         if self.is_speaking:
             print("[INFO] Speech interrupted by request")
+        try:
+            sd.stop()
+        except Exception:
+            pass
 
     def is_currently_speaking(self):
         """Check if currently speaking"""

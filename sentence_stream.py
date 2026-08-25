@@ -32,6 +32,19 @@ def _split_sentences(text: str) -> list:
     return [s for s in _SENTENCE_BOUNDARY.split(text) if s]
 
 
+def split_sentences(text: str) -> list:
+    """Split a complete (non-streaming) piece of text into sentences.
+
+    For static text that's already fully available - e.g. a canned response
+    or an error message - rather than an incremental stream. Used by
+    piper_tts.py so a multi-sentence response gets spoken (and can be
+    interrupted) sentence-by-sentence instead of as one long synthesis call.
+    """
+    if not text or not text.strip():
+        return []
+    return [s.strip() for s in _split_sentences(text) if s.strip()]
+
+
 class SentenceSplitter:
     """Buffers streamed text chunks and yields complete sentences as soon
     as they're available."""
