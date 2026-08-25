@@ -99,3 +99,35 @@ def stream_chat_with_tools(messages, model, host, tools, timeout=60, options=Non
     text, tool_calls = _stream_request(messages, model, host, timeout, options, keep_alive,
                                         tools, cancel_event, response_holder)
     return text, (tool_calls or [])
+
+
+def embed(texts, model, host, timeout=30, keep_alive=None):
+    """Call /api/embed and return one L2-normalized vector per input string.
+
+    texts: a single string or a list of strings (batched in one request -
+        Ollama's recommended way to embed many texts at once).
+    Returns a list of embedding vectors (list[list[float]]), one per input,
+    in the same order. Raises OllamaError / requests exceptions on failure -
+    callers that want graceful degradation (e.g. falling back to keyword
+    search when the embed model isn't pulled) need to catch those.
+    """
+    single = isinstance(texts, str)
+    payload = {"model": model, "input": [texts] if single else list(texts)}
+    if keep_alive is not None:
+        payload["keep_alive"] = keep_alive
+
+    response = requests.post(f"{host}/api/embed", json=payload, timeout=timeout)
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise OllamaError(f"Ollama returned {response.status_code} for /api/embed: {e}") from e
+
+    data = response.json()
+    if data.get("error"):
+        raise OllamaError(data["error"])
+
+    embeddings = data.get("embeddings")
+    if not embeddings:
+        raise OllamaError("Ollama /api/embed returned no embeddings")
+
+    return embeddings
