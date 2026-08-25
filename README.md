@@ -23,7 +23,7 @@ A sophisticated voice-controlled AI assistant with advanced memory capabilities,
 ## 🛠️ Technology Stack
 
 - **Python 3.7+**
-- **Ollama** (Local LLM - Mistral)
+- **Ollama** (Local LLM - Qwen2.5 7B Instruct by default, tool-calling capable)
 - **Vosk** (Speech Recognition)
 - **Piper TTS** (Neural Text-to-Speech)
 - **Spotify Web API** (Music Integration)
@@ -77,8 +77,10 @@ pip install -r requirements.txt
 ### Ollama Setup
 
 ```bash
-ollama pull mistral
+ollama pull qwen2.5:7b-instruct
 ```
+
+This is the default model (`llm.model` in `config.json`), chosen to fit comfortably in 6GB of VRAM (~4.7GB at Q4_K_M) while still supporting native tool/function calling, which the assistant relies on. If you have more VRAM to spare, a larger Qwen2.5 or Llama 3.3 model will reason better - just `ollama pull` it and update `llm.model` to match.
 
 ## 🎯 Usage
 
@@ -337,9 +339,15 @@ python test_web_search.py
 - Interrupt detection: 50ms polling interval
 
 ### LLM Settings
-- Default model: Mistral (via Ollama)
-- Timeout: 30 seconds
-- Configurable in `llm_interface.py`
+All configurable in `config.json` under `llm`:
+- `model`: Default `qwen2.5:7b-instruct` (via Ollama) - needs tool-calling support
+- `host`: Ollama server URL, default `http://localhost:11434`
+- `timeout_seconds`: Per-call timeout, default 60
+- `keep_alive`: How long Ollama keeps the model loaded between calls, default `10m`
+- `num_ctx`: Context window size, default 4096
+- `max_history_messages`: How many recent chat turns stay in the live conversation
+- `agent_max_rounds`: Max chained tool-calling rounds per request, default 4
+- `system_prompt`: Optional override for the assistant's personality/instructions
 
 ### Memory System
 - Database: `memory.json` (JSON storage)
@@ -386,7 +394,7 @@ notion-client==2.0.0
 
 #### 2. Ollama Connection Failed
 - Ensure Ollama is running: `ollama serve`
-- Check if Mistral model is installed: `ollama list`
+- Check if the configured model is installed: `ollama list` (should show `qwen2.5:7b-instruct`, or whatever `llm.model` is set to)
 - Verify network connectivity to Ollama
 
 #### 3. Tapo Light Control Issues
@@ -444,7 +452,7 @@ python -c "from memory_system import *; test_memory()"
 
 ### Configuration Status 🔧
 - **Voice Model**: Vosk English model (downloaded)
-- **LLM**: Mistral via Ollama (local)
+- **LLM**: Qwen2.5 7B Instruct via Ollama (local, tool-calling enabled)
 - **TTS**: Piper with British female voice (auto-downloaded)
 - **Calendar**: Google Calendar (requires credentials)
 - **Music**: Spotify (requires authentication)
