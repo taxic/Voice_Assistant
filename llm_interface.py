@@ -6,7 +6,7 @@ from enhanced_memory import EnhancedMemory
 from datetime import datetime
 from typing import Optional
 from config_manager import config
-from ollama_client import stream_chat, OllamaError
+from ollama_client import stream_chat, stream_chat_with_tools, OllamaError
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are a capable, personable AI assistant running locally on the user's own "
@@ -14,7 +14,14 @@ DEFAULT_SYSTEM_PROMPT = (
     "assistant, not a corporate chatbot - warmth and personality are welcome, "
     "but don't pad answers with filler. Get straight to useful, correct "
     "information. If you're not sure about something, say so instead of "
-    "guessing."
+    "guessing.\n\n"
+    "You have tools for real actions - calendar, weather, smart home, music, "
+    "memory, web search, notes, timers. Call a tool whenever the request "
+    "needs one, and feel free to call more than one in sequence to fully "
+    "answer a multi-part request. Don't narrate that you're 'using a tool' - "
+    "just do it and report the outcome like a competent assistant would. If "
+    "a request is ambiguous (e.g. which of several matching events), ask a "
+    "short clarifying question instead of guessing."
 )
 
 
@@ -29,6 +36,7 @@ class LLMInterface:
         self.num_ctx = config.get('llm.num_ctx', 4096)
         self.max_history_messages = config.get('llm.max_history_messages', 20)
         self.system_prompt = config.get('llm.system_prompt', DEFAULT_SYSTEM_PROMPT)
+        self.agent_max_rounds = config.get('llm.agent_max_rounds', 4)
 
         # Running message-array conversation for this process's lifetime.
         # Long-term continuity across restarts still comes from `memory`.
@@ -111,6 +119,127 @@ class LLMInterface:
         self.conversation_history.append({"role": "assistant", "content": response})
         if len(self.conversation_history) > self.max_history_messages:
             self.conversation_history = self.conversation_history[-self.max_history_messages:]
+
+    def run_agent_turn(self, user_input: str, tools: list, dispatch: dict) -> dict:
+        """Run one full agent turn: let the model call local tools as needed
+        (chaining up to agent_max_rounds), then return its final reply.
+
+        `tools` is an Ollama/OpenAI-style tool schema list, `dispatch` maps
+        tool name -> callable. Returns {"response": str, "tool_calls": [...]}
+        where tool_calls records what actually ran, for logging/debugging.
+        """
+        # Imported lazily so constructing a plain LLMInterface (e.g. for a
+        # one-off get_response call) doesn't force-load the whole
+        # calendar/spotify/notion integration stack that tools.py pulls in.
+        from tools import END_CONVERSATION
+
+        extra_context = None
+        if self.memory and not self.conversation_history:
+            limit = config.get('memory.max_recent_interactions', 5)
+            extra_context = self.memory.recall_recent(limit=limit)
+
+        messages = self._build_messages(extra_context=extra_context)
+        messages.append({"role": "user", "content": user_input})
+
+        self.interrupt_requested = False
+        self._cancel_event.clear()
+        self._generating = True  # covers the whole turn, including tool execution,
+        # so the voice-interrupt monitor thread keeps listening across rounds.
+
+        executed_tools = []
+        final_text = ""
+        options = {"num_ctx": self.num_ctx}
+
+        try:
+            for _round in range(self.agent_max_rounds):
+                try:
+                    text, tool_calls = stream_chat_with_tools(
+                        messages, model=self.model, host=self.host, tools=tools,
+                        timeout=self.timeout, options=options, keep_alive=self.keep_alive,
+                        cancel_event=self._cancel_event, response_holder=self._response_holder,
+                    )
+                except requests.exceptions.ConnectionError:
+                    print(f"[ERROR] Could not reach Ollama at {self.host}")
+                    final_text = "I'm sorry, I can't reach the local LLM right now. Is Ollama running?"
+                    break
+                except requests.exceptions.Timeout:
+                    print("[ERROR] LLM call timed out")
+                    final_text = "I'm sorry, that request is taking too long to process."
+                    break
+                except OllamaError as e:
+                    print(f"[ERROR] LLM tool-call round failed: {e}")
+                    final_text = "I'm sorry, I'm having trouble processing your request right now."
+                    break
+                except Exception as e:
+                    print(f"[ERROR] Unexpected error during agent turn: {e}")
+                    final_text = "I'm sorry, I encountered an unexpected error."
+                    break
+
+                if self._cancel_event.is_set():
+                    final_text = text
+                    break
+
+                if not tool_calls:
+                    final_text = text
+                    break
+
+                messages.append({"role": "assistant", "content": text, "tool_calls": tool_calls})
+
+                saw_end_conversation = False
+                for call in tool_calls:
+                    if self._cancel_event.is_set():
+                        break
+                    fn = call.get("function", {})
+                    name = fn.get("name")
+                    args = fn.get("arguments") or {}
+                    if not isinstance(args, dict):
+                        args = {}
+
+                    handler = dispatch.get(name)
+                    if handler is None:
+                        result = f"Unknown tool '{name}'."
+                    else:
+                        try:
+                            result = handler(**args)
+                        except Exception as e:
+                            print(f"[ERROR] Tool '{name}' failed: {e}")
+                            result = f"The '{name}' tool failed: {e}"
+
+                    if result is END_CONVERSATION:
+                        saw_end_conversation = True
+                        result = "(conversation ending)"
+
+                    executed_tools.append({"name": name, "arguments": args, "result": result})
+                    messages.append({"role": "tool", "name": name, "content": str(result)})
+
+                if self._cancel_event.is_set():
+                    break
+                if saw_end_conversation:
+                    # Let the model produce its actual goodbye text on one more
+                    # round rather than speaking the internal sentinel.
+                    text, _ = stream_chat_with_tools(
+                        messages, model=self.model, host=self.host, tools=[],
+                        timeout=self.timeout, options=options, keep_alive=self.keep_alive,
+                        cancel_event=self._cancel_event, response_holder=self._response_holder,
+                    )
+                    final_text = text
+                    break
+            else:
+                final_text = final_text or (
+                    "I wasn't able to finish that after a few steps - could you rephrase or simplify the request?"
+                )
+        finally:
+            self._generating = False
+
+        if not final_text:
+            final_text = "I'm sorry, I couldn't come up with a response."
+
+        self._remember_turn(user_input, final_text)
+        return {
+            "response": final_text,
+            "tool_calls": executed_tools,
+            "ended_conversation": any(t["name"] == "end_conversation" for t in executed_tools),
+        }
 
     def _call_llm(self, prompt: str) -> str:
         """Make a stateless, single-turn call (used for internal extraction

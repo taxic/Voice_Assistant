@@ -112,7 +112,8 @@ class ConfigManager:
                 "timeout_seconds": 60,
                 "keep_alive": "10m",
                 "num_ctx": 4096,
-                "max_history_messages": 20
+                "max_history_messages": 20,
+                "agent_max_rounds": 4
             },
             "weather": {
                 "default_location": "Guildford",
