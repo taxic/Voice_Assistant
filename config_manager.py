@@ -181,7 +181,7 @@ class ConfigManager:
             },
             "paths": {
                 "config_file": "config.json",
-                "memory_file": "memory.json",
+                "memory_file": "memory.db",
                 "logs_directory": "logs"
             }
         }
