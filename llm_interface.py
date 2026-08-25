@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 from config_manager import config
 from ollama_client import stream_chat, stream_chat_with_tools, OllamaError
+from sentence_stream import SentenceSplitter
 
 def _default_system_prompt(name: str) -> str:
     return (
@@ -131,13 +132,24 @@ class LLMInterface:
         if len(self.conversation_history) > self.max_history_messages:
             self.conversation_history = self.conversation_history[-self.max_history_messages:]
 
-    def run_agent_turn(self, user_input: str, tools: list, dispatch: dict) -> dict:
+    def run_agent_turn(self, user_input: str, tools: list, dispatch: dict, on_sentence=None) -> dict:
         """Run one full agent turn: let the model call local tools as needed
         (chaining up to agent_max_rounds), then return its final reply.
 
         `tools` is an Ollama/OpenAI-style tool schema list, `dispatch` maps
-        tool name -> callable. Returns {"response": str, "tool_calls": [...]}
-        where tool_calls records what actually ran, for logging/debugging.
+        tool name -> callable. Returns {"response": str, "tool_calls": [...],
+        "streamed": bool} where tool_calls records what actually ran, for
+        logging/debugging, and streamed says whether on_sentence already
+        spoke the response (so the caller shouldn't speak it again).
+
+        on_sentence: optional callback fired with each complete sentence as
+        soon as it's available, before the full response is done generating
+        - lets the caller (main.py) start speaking immediately instead of
+        waiting for the whole turn. Applied uniformly across every round
+        (including tool-calling rounds), since a well-behaved tool-calling
+        model emits little or no content on a round where it's also
+        returning tool_calls - there's a small residual chance a model emits
+        both, in which case that stray text would get spoken slightly early.
         """
         # Imported lazily so constructing a plain LLMInterface (e.g. for a
         # one-off get_response call) doesn't force-load the whole
@@ -161,6 +173,17 @@ class LLMInterface:
         final_text = ""
         options = {"num_ctx": self.num_ctx}
 
+        splitter = SentenceSplitter() if on_sentence else None
+        streamed = False
+
+        def _on_content(chunk):
+            nonlocal streamed
+            for sentence in splitter.feed(chunk):
+                on_sentence(sentence)
+                streamed = True
+
+        on_content = _on_content if splitter else None
+
         try:
             for _round in range(self.agent_max_rounds):
                 try:
@@ -168,6 +191,7 @@ class LLMInterface:
                         messages, model=self.model, host=self.host, tools=tools,
                         timeout=self.timeout, options=options, keep_alive=self.keep_alive,
                         cancel_event=self._cancel_event, response_holder=self._response_holder,
+                        on_content=on_content,
                     )
                 except requests.exceptions.ConnectionError:
                     print(f"[ERROR] Could not reach Ollama at {self.host}")
@@ -232,6 +256,7 @@ class LLMInterface:
                         messages, model=self.model, host=self.host, tools=[],
                         timeout=self.timeout, options=options, keep_alive=self.keep_alive,
                         cancel_event=self._cancel_event, response_holder=self._response_holder,
+                        on_content=on_content,
                     )
                     final_text = text
                     break
@@ -242,6 +267,14 @@ class LLMInterface:
         finally:
             self._generating = False
 
+        # Skip speaking a trailing fragment if the turn was interrupted -
+        # "stop" should mean stop, not "finish this last bit first".
+        if splitter and not self._cancel_event.is_set():
+            trailing = splitter.flush()
+            if trailing:
+                on_sentence(trailing)
+                streamed = True
+
         if not final_text:
             final_text = "I'm sorry, I couldn't come up with a response."
 
@@ -250,6 +283,7 @@ class LLMInterface:
             "response": final_text,
             "tool_calls": executed_tools,
             "ended_conversation": any(t["name"] == "end_conversation" for t in executed_tools),
+            "streamed": streamed,
         }
 
     def _call_llm(self, prompt: str) -> str:

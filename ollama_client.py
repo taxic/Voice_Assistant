@@ -20,8 +20,14 @@ class OllamaError(Exception):
 
 
 def _stream_request(messages, model, host, timeout, options, keep_alive, tools,
-                     cancel_event, response_holder):
-    """Shared streaming implementation. Returns (text, tool_calls)."""
+                     cancel_event, response_holder, on_content=None):
+    """Shared streaming implementation. Returns (text, tool_calls).
+
+    on_content: optional callback invoked with each non-empty content delta
+    as it streams in (before the full text is known). Used to start
+    speaking a response sentence-by-sentence instead of waiting for the
+    whole thing - see LLMInterface.run_agent_turn's on_sentence param.
+    """
     payload = {"model": model, "messages": messages, "stream": True}
     if options:
         payload["options"] = options
@@ -55,6 +61,8 @@ def _stream_request(messages, model, host, timeout, options, keep_alive, tools,
             content = message.get("content", "")
             if content:
                 chunks.append(content)
+                if on_content is not None:
+                    on_content(content)
             if message.get("tool_calls"):
                 tool_calls = message["tool_calls"]
             if data.get("done"):
@@ -73,7 +81,7 @@ def _stream_request(messages, model, host, timeout, options, keep_alive, tools,
 
 
 def stream_chat(messages, model, host, timeout=60, options=None, keep_alive=None,
-                 cancel_event=None, response_holder=None):
+                 cancel_event=None, response_holder=None, on_content=None):
     """Call /api/chat with streaming and return the full assistant reply text.
 
     messages: list of {"role": "system"|"user"|"assistant", "content": str}
@@ -82,14 +90,16 @@ def stream_chat(messages, model, host, timeout=60, options=None, keep_alive=None
     response_holder: optional dict; if given, response_holder["response"] is
         set to the live requests.Response so another thread can call
         .close() on it to trigger cancellation (used for TTS/LLM interrupts).
+    on_content: optional callback fired with each text delta as it streams.
     """
     text, _ = _stream_request(messages, model, host, timeout, options, keep_alive,
-                               None, cancel_event, response_holder)
+                               None, cancel_event, response_holder, on_content)
     return text
 
 
 def stream_chat_with_tools(messages, model, host, tools, timeout=60, options=None,
-                            keep_alive=None, cancel_event=None, response_holder=None):
+                            keep_alive=None, cancel_event=None, response_holder=None,
+                            on_content=None):
     """Like stream_chat, but passes a tool/function schema list and also
     returns any tool_calls the model made (list of
     {"function": {"name": str, "arguments": dict}}, empty if none).
@@ -97,7 +107,7 @@ def stream_chat_with_tools(messages, model, host, tools, timeout=60, options=Non
     Returns (text, tool_calls).
     """
     text, tool_calls = _stream_request(messages, model, host, timeout, options, keep_alive,
-                                        tools, cancel_event, response_holder)
+                                        tools, cancel_event, response_holder, on_content)
     return text, (tool_calls or [])
 
 
