@@ -94,7 +94,13 @@ def main():
         interrupt_thread.start()
 
         try:
-            result = llm.run_agent_turn(command, tool_schemas, dispatch)
+            # Speak each sentence as soon as the model finishes it, instead
+            # of waiting for the whole response - this fires from inside
+            # run_agent_turn while the rest of the reply is still streaming.
+            def speak_sentence(sentence):
+                tts.speak(sentence, check_interrupts=True)
+
+            result = llm.run_agent_turn(command, tool_schemas, dispatch, on_sentence=speak_sentence)
             response = result["response"]
             tool_names = [call["name"] for call in result["tool_calls"]]
 
@@ -113,7 +119,10 @@ def main():
             # The model's own reply carries its personality now - no canned
             # suffix bolted on afterward (see response_variations.py / the
             # system prompt in llm_interface.py for where that voice comes from).
-            tts.speak(response, check_interrupts=True)
+            # Only speak it here if it wasn't already spoken sentence-by-sentence
+            # above (error/timeout paths never stream, so still need this).
+            if not result.get("streamed"):
+                tts.speak(response, check_interrupts=True)
 
             if result.get("ended_conversation"):
                 break
