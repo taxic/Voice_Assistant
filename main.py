@@ -10,22 +10,6 @@ from response_variations import response_variations
 import threading
 import time
 
-# response_variations.add_personality_to_response() still keys off the old
-# intent-string vocabulary (e.g. "calendar_add", "music_play") from before
-# tool-calling replaced the intent classifier. Map the new tool names onto
-# those buckets so the existing personality touches keep firing instead of
-# silently going dark on a naming mismatch.
-_PERSONALITY_INTENT_MAP = {
-    "start_timer": "timer",
-    "add_calendar_event": "calendar_add",
-    "play_music": "music_play",
-    "save_memory": "save_memory",
-    "get_weather": "weather",
-    "get_current_time": "time",
-    "search_web": "web_search",
-    "search_memory": "memory_recall",
-}
-
 
 def handle_interrupt_during_processing(recognizer, llm, tts):
     """Monitor for interrupts during LLM/tool processing"""
@@ -126,12 +110,10 @@ def main():
                 tts.speak(interrupted_response)
                 continue
 
-            # Add personality to response before speaking
-            personality_intent = _PERSONALITY_INTENT_MAP.get(tool_names[0]) if tool_names else None
-            enhanced_response = response_variations.add_personality_to_response(response, personality_intent)
-
-            # Speak the response with interrupt detection
-            tts.speak(enhanced_response, check_interrupts=True)
+            # The model's own reply carries its personality now - no canned
+            # suffix bolted on afterward (see response_variations.py / the
+            # system prompt in llm_interface.py for where that voice comes from).
+            tts.speak(response, check_interrupts=True)
 
             if result.get("ended_conversation"):
                 break
