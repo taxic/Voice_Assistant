@@ -52,8 +52,7 @@
     "piper": {
       "voice": "en_GB-southern_english_female-low",
       "download_models": true,
-      "models_dir": "piper/models",
-      "chunk_size": 50
+      "models_dir": "piper/models"
     }
   },
   "memory": {

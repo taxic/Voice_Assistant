@@ -243,7 +243,9 @@ Automatically suggests appropriate default times and durations for calendar even
 
 - **Natural Voices**: Neural network-based speech synthesis
 - **British English**: Default voice is `en_GB-southern_english_female-low`
-- **Interrupt Support**: Can be stopped mid-sentence
+- **Streamed, sentence-by-sentence**: The assistant starts speaking as soon as the LLM finishes each sentence, instead of waiting for the whole response to generate - noticeably cuts the silence before you hear anything, especially on longer answers
+- **In-process playback**: Piper synthesizes to raw PCM (`--output-raw`) played directly via `sounddevice`, rather than writing a temp WAV file and shelling out to a separate audio-player process per chunk
+- **Interrupt Support**: `sd.stop()` halts audio immediately mid-sentence, not just at the next chunk boundary
 - **Automatic Setup**: Downloads voice models on first run
 
 #### TTS Configuration
@@ -254,8 +256,7 @@ Automatically suggests appropriate default times and durations for calendar even
     "piper": {
       "voice": "en_GB-southern_english_female-low",
       "download_models": true,
-      "models_dir": "piper/models",
-      "chunk_size": 50
+      "models_dir": "piper/models"
     }
   }
 }
@@ -274,7 +275,7 @@ The assistant uses **"silent success, noisy failure"** principle:
 - **Real-time listening**: Continuously monitors for interrupt commands
 - **Voice Interrupt Detection**: Background processing in separate thread
 - **LLM Response Interruption**: Can terminate long-running generations
-- **Chunked Speech**: Long responses broken into smaller chunks
+- **Sentence-Level Speech**: Responses are spoken (and can be interrupted) one sentence at a time, streamed in as the LLM generates them rather than split by an arbitrary character count
 - **Clean Resource Management**: Proper cleanup of audio and process resources
 
 #### Configuration:
@@ -364,8 +365,8 @@ All configurable in `config.json` under `llm`:
 ### Audio Settings
 - TTS: Piper neural synthesis
 - Voice: British English female
-- Audio format: WAV, optimized for Windows
-- Chunk size: 50 characters for responsive interrupts
+- Audio format: raw 16-bit PCM piped directly to `sounddevice` (no intermediate WAV file)
+- Chunking: sentence-level, streamed in as the LLM generates each one
 
 ## 📋 Requirements
 
