@@ -179,20 +179,64 @@ class EnhancedMemory:
         
         self.conn.commit()
 
-    def _migrate_schema(self):
-        """Add the embedding column to tables that predate semantic search.
+    # Every column each table is expected to have beyond its PRIMARY KEY,
+    # keyed by table name. CREATE TABLE IF NOT EXISTS in _create_tables()
+    # above is a no-op on a table that already exists, so a DB created by an
+    # older version of this file (or missing any column added since) won't
+    # pick up new columns on its own - _migrate_schema() below diffs this
+    # against PRAGMA table_info() and ALTERs in whatever's missing.
+    _EXPECTED_COLUMNS = {
+        "interactions": {
+            "timestamp": "TEXT",
+            "user_input": "TEXT",
+            "response": "TEXT",
+            "context_type": "TEXT DEFAULT 'general'",
+            "session_id": "TEXT",
+            "importance": "INTEGER DEFAULT 1",
+            "tags": "TEXT",
+            "metadata": "TEXT",
+            "embedding": "BLOB",
+        },
+        "long_term_memory": {
+            "timestamp": "TEXT",
+            "title": "TEXT",
+            "content": "TEXT",
+            "category": "TEXT DEFAULT 'general'",
+            "importance": "INTEGER DEFAULT 1",
+            "tags": "TEXT",
+            "metadata": "TEXT",
+            "related_items": "TEXT",
+            "embedding": "BLOB",
+        },
+        "conversation_contexts": {
+            "timestamp": "TEXT",
+            "session_id": "TEXT",
+            "topic": "TEXT",
+            "summary": "TEXT",
+            "participants": "TEXT",
+            "conversation_length": "INTEGER DEFAULT 0",
+            "importance": "INTEGER DEFAULT 1",
+            "tags": "TEXT",
+            "metadata": "TEXT",
+        },
+    }
 
-        CREATE TABLE IF NOT EXISTS above won't add columns to a table that
-        already exists, so this runs an ALTER TABLE for any DB created before
-        this change. Safe to call every startup - checks column presence
-        first, so it's a no-op once a DB has been migrated.
+    def _migrate_schema(self):
+        """Bring an existing DB's tables up to the current expected schema.
+
+        Diffs each table in _EXPECTED_COLUMNS against PRAGMA table_info() and
+        ALTERs in whatever columns are missing. Handles a DB created by any
+        older version of this file, not just the embedding-column migration
+        that used to be the only thing checked here. Safe to call every
+        startup - it's a no-op once a DB is fully up to date.
         """
-        for table in ("interactions", "long_term_memory"):
+        for table, expected in self._EXPECTED_COLUMNS.items():
             self.cursor.execute(f"PRAGMA table_info({table})")
-            columns = {row[1] for row in self.cursor.fetchall()}
-            if "embedding" not in columns:
-                print(f"[INFO] Migrating {self.db_name}: adding embedding column to {table}")
-                self.cursor.execute(f"ALTER TABLE {table} ADD COLUMN embedding BLOB")
+            existing = {row[1] for row in self.cursor.fetchall()}
+            for column, definition in expected.items():
+                if column not in existing:
+                    print(f"[INFO] Migrating {self.db_name}: adding {column} column to {table}")
+                    self.cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         self.conn.commit()
 
     def _load_recent_context(self):
