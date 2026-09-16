@@ -152,6 +152,7 @@ class ConfigManager:
             "voice": {
                 "wake_word_timeout": 5.0,
                 "command_timeout": 10.0,
+                "follow_up_timeout": 5.0,
                 "interrupt_check_interval": 0.05
             },
             "memory": {

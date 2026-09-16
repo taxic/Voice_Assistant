@@ -26,14 +26,33 @@ class VoiceRecognizer:
         self.q.put(bytes(indata))
 
     def _listen(self, timeout=10):
+        """Listen until a finalized non-empty utterance or `timeout` seconds
+        elapse, whichever comes first.
+
+        `timeout` is a wall-clock deadline for the whole call, not just the
+        gap between audio chunks - audio keeps arriving continuously from the
+        mic every ~0.5s regardless of whether anyone is speaking, so bounding
+        only the per-chunk wait (the previous behavior) meant this almost
+        never actually timed out while silent. Pass timeout=None to wait
+        indefinitely (used for wake-word listening, which is meant to block
+        until the wake word is heard).
+        """
         with sd.RawInputStream(samplerate=self.samplerate, blocksize=8000,
                                device=self.device, dtype='int16',
                                channels=1, callback=self._callback):
             rec = vosk.KaldiRecognizer(self.model, self.samplerate)
-            collected_text = ""
+            deadline = time.time() + timeout if timeout is not None else None
             while True:
+                if deadline is not None:
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        print("[WARN] Listening timed out.")
+                        return None
+                else:
+                    remaining = None
+
                 try:
-                    data = self.q.get(timeout=timeout)
+                    data = self.q.get(timeout=remaining)
                 except queue.Empty:
                     print("[WARN] Listening timed out.")
                     return None
@@ -49,14 +68,14 @@ class VoiceRecognizer:
     def listen_for_wake_word(self):
         print(">> Listening for wake word...")
         while True:
-            text = self._listen()
+            text = self._listen(timeout=None)
             if text and self.wake_word in text:
                 print(f"[Wake word detected]: {self.wake_word}")
                 return
 
-    def listen_for_command(self):
+    def listen_for_command(self, timeout=10):
         print(">> Listening for command...")
-        command = self._listen()
+        command = self._listen(timeout=timeout)
         if command:
             return command
         else:
