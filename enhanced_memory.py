@@ -516,40 +516,6 @@ class EnhancedMemory:
         context += "=== End Short-term Memory ===\n\n"
         return context
     
-    def get_long_term_context(self, query: str = "", limit: int = None) -> str:
-        """Get relevant long-term memory context"""
-        if limit is None:
-            limit = config.get('memory.long_term_context_limit', 5)
-        
-        if query:
-            # Search for relevant long-term memories
-            relevant_memories = self.search_long_term_memory(query, limit)
-        else:
-            # Get recent important memories
-            relevant_memories = self.get_recent_long_term_memory(limit)
-        
-        if not relevant_memories:
-            return ""
-        
-        context = "=== Long-term Memory (Relevant Information) ===\n"
-        
-        for memory in relevant_memories:
-            try:
-                dt = datetime.fromisoformat(memory['timestamp'])
-                date_str = dt.strftime("%B %d, %Y")
-            except:
-                date_str = "unknown date"
-            
-            context += f"\n[{date_str}] {memory['title']}\n"
-            context += f"Category: {memory['category']} | Importance: {memory['importance']}\n"
-            context += f"{memory['content']}\n"
-            
-            if memory['tags']:
-                context += f"Tags: {', '.join(memory['tags'])}\n"
-        
-        context += "\n=== End Long-term Memory ===\n\n"
-        return context
-    
     @staticmethod
     def _row_to_long_term_dict(row: tuple) -> Dict:
         return {
@@ -610,56 +576,6 @@ class EnhancedMemory:
         self.cursor.execute(query_sql, params)
         return [self._row_to_long_term_dict(row) for row in self.cursor.fetchall()]
 
-    def get_recent_long_term_memory(self, limit: int = 5) -> List[Dict]:
-        """Get recent important long-term memories"""
-        self.cursor.execute("""
-            SELECT id, timestamp, title, content, category, importance, tags, metadata, related_items
-            FROM long_term_memory 
-            ORDER BY importance DESC, timestamp DESC 
-            LIMIT ?
-        """, (limit,))
-        
-        rows = self.cursor.fetchall()
-        
-        results = []
-        for row in rows:
-            results.append({
-                'id': row[0],
-                'timestamp': row[1],
-                'title': row[2],
-                'content': row[3],
-                'category': row[4],
-                'importance': row[5],
-                'tags': json.loads(row[6]) if row[6] else [],
-                'metadata': json.loads(row[7]) if row[7] else {},
-                'related_items': json.loads(row[8]) if row[8] else []
-            })
-        
-        return results
-    
-    def get_contextual_memory(self, user_query: str, limit: int = None) -> str:
-        """Get comprehensive contextual memory for LLM"""
-        if limit is None:
-            limit = config.get('memory.contextual_search_limit', 5)
-        
-        context_parts = []
-        
-        # Add short-term context
-        short_term = self.get_short_term_context(limit)
-        if short_term:
-            context_parts.append(short_term)
-        
-        # Add relevant long-term context
-        long_term = self.get_long_term_context(user_query, limit)
-        if long_term:
-            context_parts.append(long_term)
-        
-        # Add conversation context summary
-        if self.conversation_context.summary:
-            context_parts.append(f"=== Conversation Summary ===\n{self.conversation_context.summary}\n\n")
-        
-        return "".join(context_parts)
-    
     def recall_recent(self, limit: int = 5) -> str:
         """Backward compatibility with old memory interface"""
         return self.get_short_term_context(limit)
@@ -717,19 +633,6 @@ class EnhancedMemory:
         self.cursor.execute(query_sql, params)
         return [self._row_to_interaction_dict(row) for row in self.cursor.fetchall()]
 
-    def start_new_session(self):
-        """Start a new conversation session"""
-        # Save current session context
-        if self.conversation_context.conversation_length > 0:
-            self._save_conversation_context()
-        
-        # Reset session
-        self.current_session_id = self._generate_session_id()
-        self.conversation_context = ConversationContext()
-        
-        # Keep some short-term memory but mark session boundary
-        print(f"[INFO] Started new conversation session: {self.current_session_id}")
-    
     def _save_conversation_context(self):
         """Save conversation context to database"""
         self.cursor.execute("""
