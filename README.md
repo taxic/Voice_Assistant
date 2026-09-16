@@ -347,7 +347,7 @@ python test_web_search.py
 - Interrupt detection: 50ms polling interval
 - Configurable in `config.json` under `voice`:
   - `command_timeout`: How long to wait for a command right after the wake word, default 10s
-  - `follow_up_timeout`: How long to keep listening after each reply before requiring the wake word again, default 5s - this is what lets you answer a clarifying question ("For how long?" → "five minutes") or keep talking without saying "Jarvis" every time. One silent window with nothing heard falls back to wake-word mode.
+  - `follow_up_timeout`: How long to wait in silence after each reply before requiring the wake word again, default 5s - this is what lets you answer a clarifying question ("For how long?" → "five minutes") or keep talking without saying "Jarvis" every time. It's a silence timer, not a hard cutoff: as long as you're actively talking it keeps extending, so a long sentence isn't cut off - only a full `follow_up_timeout` seconds of actual silence falls back to wake-word mode.
   - `wake_word_timeout`: Only read by the old GUI settings screens - the core voice loop's wake-word listening blocks indefinitely and doesn't use this value
 
 ### LLM Settings
