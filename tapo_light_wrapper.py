@@ -149,18 +149,6 @@ class TapoLight(IoTDevice):
             print(f"[ERROR] Failed to get device info for Tapo light '{self.name}': {e}")
             return {}
 
-    async def get_device_usage(self) -> Dict[str, Any]:
-        """Get device energy usage information"""
-        try:
-            await self._ensure_connection()
-            # Use the correct method name for Tapo L530
-            usage = await self.device.get_device_usage()
-            self.last_state.update({"energy_usage": usage})
-            return usage
-        except Exception as e:
-            print(f"[ERROR] Failed to get energy usage for Tapo light '{self.name}': {e}")
-            return {}
-
 class TapoManager:
     """Manager for Tapo devices with async support"""
 
@@ -190,10 +178,6 @@ class TapoManager:
                 return self.devices.get(device_id)
 
         return None
-
-    def list_devices(self) -> List[TapoLight]:
-        """List all Tapo devices"""
-        return list(self.devices.values())
 
     async def turn_on_light(self, device_name: str) -> str:
         """Turn on a Tapo light"""
