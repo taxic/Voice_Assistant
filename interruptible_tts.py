@@ -26,10 +26,3 @@ class InterruptibleTTS:
         self.interrupt_requested = self.engine.interrupt_requested
         self.is_speaking = self.engine.is_speaking
 
-    def is_currently_speaking(self):
-        """Check if currently speaking"""
-        return self.engine.is_currently_speaking()
-
-    def wait_for_completion(self, timeout=30):
-        """Wait for current speech to complete"""
-        return self.engine.wait_for_completion(timeout)

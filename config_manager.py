@@ -72,37 +72,6 @@ class ConfigManager:
         """Get entire configuration section"""
         return self.get(section, default or {})
     
-    def set(self, key_path: str, value: Any):
-        """Set configuration value using dot notation"""
-        if self._config is None:
-            self._config = {}
-        
-        keys = key_path.split('.')
-        current = self._config
-        
-        # Navigate to the parent of the target key
-        for key in keys[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
-        
-        # Set the final value
-        current[keys[-1]] = value
-    
-    def save_config(self, config_path: str = "config.json"):
-        """Save current configuration to file"""
-        try:
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
-            print(f"[INFO] Configuration saved to {config_path}")
-        except Exception as e:
-            print(f"[ERROR] Failed to save config: {e}")
-    
-    def reload_config(self, config_path: str = "config.json"):
-        """Reload configuration from file"""
-        self._config = None
-        self.load_config(config_path)
-    
     def _get_default_config(self) -> Dict[str, Any]:
         """Return default configuration if file loading fails"""
         return {
@@ -160,9 +129,7 @@ class ConfigManager:
                 "contextual_search_limit": 3,
                 "short_term_max_items": 50,
                 "short_term_context_limit": 10,
-                "long_term_context_limit": 5,
-                "importance_decay_days": 30,
-                "auto_summarize_threshold": 100
+                "long_term_context_limit": 5
             },
             "assistant": {
                 "name": "Assistant",
@@ -177,14 +144,10 @@ class ConfigManager:
                 "max_scrape_results": 3,
                 "timeout_seconds": 10,
                 "scrape_timeout_seconds": 15,
-                "max_content_length": 3000,
-                "delay_between_requests": 2,
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "max_content_length": 3000
             },
             "paths": {
-                "config_file": "config.json",
-                "memory_file": "memory.db",
-                "logs_directory": "logs"
+                "memory_file": "memory.db"
             }
         }
 

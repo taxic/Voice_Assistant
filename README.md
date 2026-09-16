@@ -168,9 +168,7 @@ Run `ollama pull nomic-embed-text` alongside your chat model - semantic search n
     "contextual_search_limit": 3,
     "short_term_max_items": 50,
     "short_term_context_limit": 10,
-    "long_term_context_limit": 5,
-    "importance_decay_days": 30,
-    "auto_summarize_threshold": 100
+    "long_term_context_limit": 5
   },
   "llm": {
     "embed_model": "nomic-embed-text",
@@ -233,8 +231,7 @@ Automatically suggests appropriate default times and durations for calendar even
     "max_scrape_results": 3,
     "timeout_seconds": 10,
     "scrape_timeout_seconds": 15,
-    "max_content_length": 3000,
-    "delay_between_requests": 2
+    "max_content_length": 3000
   }
 }
 ```
@@ -252,11 +249,8 @@ Automatically suggests appropriate default times and durations for calendar even
 ```json
 {
   "tts": {
-    "engine": "piper",
     "piper": {
-      "voice": "en_GB-southern_english_female-low",
-      "download_models": true,
-      "models_dir": "piper/models"
+      "voice": "en_GB-southern_english_female-low"
     }
   }
 }
@@ -307,7 +301,8 @@ Assistant/
 ├── smart_event_times.py     # Smart calendar time suggestions
 ├── notion_interface.py      # Notion API integration
 ├── spotify_interface.py     # Spotify integration
-├── unified_calendar.py      # Calendar management
+├── calendar_cache_sync.py   # Local calendar caching + background sync with Google
+├── local_calendar_db.py     # SQLite-backed local calendar cache
 ├── config.json             # Configuration file
 └── README.md               # This comprehensive guide
 ```

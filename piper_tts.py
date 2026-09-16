@@ -244,13 +244,3 @@ class PiperTTS:
         except Exception:
             pass
 
-    def is_currently_speaking(self):
-        """Check if currently speaking"""
-        return self.is_speaking
-
-    def wait_for_completion(self, timeout=30):
-        """Wait for current speech to complete"""
-        start_time = time.time()
-        while self.is_speaking and (time.time() - start_time) < timeout:
-            time.sleep(0.1)
-        return not self.is_speaking
