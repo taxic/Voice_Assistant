@@ -289,14 +289,16 @@ self.interrupt_words = ["stop", "pause", "wait", "interrupt", "hold on", "quiet"
 Assistant/
 ├── main.py                     # Main application entry point
 ├── voice_recognition.py        # Speech recognition and wake word detection
-├── llm_interface.py           # Ollama LLM integration
+├── llm_interface.py           # Ollama LLM integration (agent loop, tool-calling)
+├── ollama_client.py           # Ollama HTTP API client (streaming chat/embed)
+├── tools.py                   # Tool schemas + dispatch for the agent
+├── sentence_stream.py         # Sentence-boundary splitting for streamed TTS
 ├── commands.py                # Command implementations
 ├── interruptible_tts.py       # Text-to-speech with interrupt capability
-├── intent_parser.py           # Intent classification and parsing
-├── command_parser.py          # Command parsing utilities
 ├── calendar_interface.py      # Google Calendar integration
 ├── enhanced_memory.py         # Conversation memory + semantic search (memory.db)
-├── settings_gui.py            # Settings and device management GUI
+├── settings_gui.py            # Standalone config-editing GUI
+├── launch_settings.py         # Launcher for settings_gui.py
 ├── tapo_light_wrapper.py      # Tapo smart light control
 ├── iot_manager.py            # IoT device management
 ├── iot_commands.py           # IoT command processing
@@ -305,38 +307,9 @@ Assistant/
 ├── smart_event_times.py     # Smart calendar time suggestions
 ├── notion_interface.py      # Notion API integration
 ├── spotify_interface.py     # Spotify integration
-├── weather_interface.py     # Weather data interface
 ├── unified_calendar.py      # Calendar management
-├── test_*.py               # Test files for various features
 ├── config.json             # Configuration file
 └── README.md               # This comprehensive guide
-```
-
-## 🧪 Testing
-
-### Test Core Functionality
-```bash
-python test_improvements.py
-```
-
-### Test Interrupt Functionality
-```bash
-python test_interrupt.py
-```
-
-### Test Smart Home Integration
-```bash
-python test_smart_bulb_integration.py
-```
-
-### Test Calendar Features
-```bash
-python test_calendar_gui.py
-```
-
-### Test Web Search
-```bash
-python test_web_search.py
 ```
 
 ## ⚙️ Configuration
@@ -549,8 +522,7 @@ This software incorporates several open-source components under their respective
 
 ### **Start Commands**
 - Main Assistant: `python main.py`
-- Settings GUI: `python settings_gui.py`
-- Text Assistant: `python text_assistant_gui.py`
+- Settings GUI: `python settings_gui.py` (or `python launch_settings.py`)
 
 ### **Test Commands**
 - Full System Test: `python test_improvements.py`
