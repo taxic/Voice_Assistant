@@ -26,14 +26,37 @@ class VoiceRecognizer:
         self.q.put(bytes(indata))
 
     def _listen(self, timeout=10):
+        """Listen until a finalized non-empty utterance or `timeout` seconds
+        of silence elapse, whichever comes first.
+
+        `timeout` is a wall-clock deadline, not just the gap between audio
+        chunks - audio keeps arriving continuously from the mic every ~0.5s
+        regardless of whether anyone is speaking, so bounding only the
+        per-chunk wait meant this almost never actually timed out while
+        silent. But the deadline isn't fixed either: every chunk where Vosk
+        reports a non-empty partial transcript (i.e. the user is actively
+        mid-utterance) pushes the deadline `timeout` seconds further out, so
+        someone who starts talking just before the deadline doesn't get cut
+        off - only a stretch of genuine silence that long ends the call.
+        Pass timeout=None to wait indefinitely (used for wake-word
+        listening, which is meant to block until the wake word is heard).
+        """
         with sd.RawInputStream(samplerate=self.samplerate, blocksize=8000,
                                device=self.device, dtype='int16',
                                channels=1, callback=self._callback):
             rec = vosk.KaldiRecognizer(self.model, self.samplerate)
-            collected_text = ""
+            deadline = time.time() + timeout if timeout is not None else None
             while True:
+                if deadline is not None:
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        print("[WARN] Listening timed out.")
+                        return None
+                else:
+                    remaining = None
+
                 try:
-                    data = self.q.get(timeout=timeout)
+                    data = self.q.get(timeout=remaining)
                 except queue.Empty:
                     print("[WARN] Listening timed out.")
                     return None
@@ -43,20 +66,22 @@ class VoiceRecognizer:
                     collected_text = result.get("text", "")
                     if collected_text:
                         return collected_text.lower()
-                else:
-                    pass  # Partial result if needed: rec.PartialResult()
+                elif deadline is not None:
+                    partial = json.loads(rec.PartialResult()).get("partial", "")
+                    if partial:
+                        deadline = time.time() + timeout
 
     def listen_for_wake_word(self):
         print(">> Listening for wake word...")
         while True:
-            text = self._listen()
+            text = self._listen(timeout=None)
             if text and self.wake_word in text:
                 print(f"[Wake word detected]: {self.wake_word}")
                 return
 
-    def listen_for_command(self):
+    def listen_for_command(self, timeout=10):
         print(">> Listening for command...")
-        command = self._listen()
+        command = self._listen(timeout=timeout)
         if command:
             return command
         else:

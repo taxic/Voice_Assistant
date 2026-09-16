@@ -110,13 +110,6 @@ class CalendarCacheSync:
         self.sync_thread.start()
         print(f"[INFO] Background calendar sync started (interval: {self.sync_interval_minutes} minutes)")
 
-    def stop_background_sync(self):
-        """Stop the background synchronization thread"""
-        self.sync_enabled = False
-        if self.sync_thread:
-            self.sync_thread.join(timeout=5)
-        print("[INFO] Background calendar sync stopped")
-
     def _sync_worker(self):
         """Background worker that performs periodic synchronization"""
         while self.sync_enabled:
@@ -554,78 +547,3 @@ class CalendarCacheSync:
 
         except Exception:
             return True  # On error, assume refresh is needed
-
-    # Write operations (write-through to both local and Google)
-    def create_event(self, summary: str, start_time: str, end_time: str,
-                    description: str = "", location: str = "") -> str:
-        """Create event in both local database and Google Calendar"""
-        try:
-            # Create in Google Calendar first (if available)
-            if self.google_calendar and self.google_calendar.service:
-                google_result = self.google_calendar.create_event(summary, start_time, end_time)
-                # Extract Google event ID from result if possible
-                google_event_id = None
-                # Note: In a real implementation, you'd parse the Google response to get the event ID
-            else:
-                google_result = f"Event '{summary}' created locally (Google Calendar not available)"
-                google_event_id = None
-
-            # Create in local database
-            event_id = self.local_db.create_event(
-                summary=summary,
-                start_time=start_time,
-                end_time=end_time,
-                description=description,
-                location=location,
-                provider='google',
-                google_event_id=google_event_id
-            )
-
-            # Mark as synced
-            self.local_db.mark_event_synced(event_id)
-
-            return google_result
-
-        except Exception as e:
-            print(f"[ERROR] Failed to create event: {e}")
-            return f"Sorry, I encountered an error creating the event: {str(e)}"
-
-    def get_sync_status(self) -> Dict[str, Any]:
-        """Get current synchronization status"""
-        try:
-            sync_state = self.local_db.get_sync_state('google')
-            stats = self.local_db.get_sync_stats()
-            db_size = self.local_db.get_database_size()
-
-            return {
-                'sync_enabled': self.sync_enabled,
-                'last_full_sync': sync_state.get('last_full_sync'),
-                'last_incremental_sync': sync_state.get('last_incremental_sync'),
-                'next_sync_due': sync_state.get('next_sync_due'),
-                'sync_stats': stats,
-                'database_info': db_size,
-                'cache_timeout_minutes': self.cache_timeout_minutes
-            }
-
-        except Exception as e:
-            return {'error': str(e)}
-
-    def force_refresh_cache(self) -> Dict[str, Any]:
-        """Force a full refresh of the cache"""
-        return self.perform_full_sync()
-
-    def cleanup_cache(self, days_to_keep: int = 30) -> int:
-        """Clean up old events from cache"""
-        return self.local_db.cleanup_old_events(days_to_keep)
-
-    def export_cache(self, format: str = 'json') -> str:
-        """Export cached events"""
-        return self.local_db.export_events(format=format)
-
-    def import_cache(self, data: str, format: str = 'json') -> int:
-        """Import events into cache"""
-        return self.local_db.import_events(data, format, 'import')
-
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache performance statistics"""
-        return self.local_db.get_database_size()
