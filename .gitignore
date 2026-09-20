@@ -77,6 +77,7 @@ models/
 memory.db
 test_memory.db
 test_workflow.db
+scripts/
 
 # Configuration files (may contain sensitive settings)
 config-*.json

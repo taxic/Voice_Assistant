@@ -92,6 +92,12 @@
        "default_database_id": "25acf958599580d78a78000c720a6bf3",
        "default_page_id": "25acf958599580cbaa86d4da2f4b37ff"
      },
+  "coding": {
+    "execution_timeout_seconds": 10,
+    "max_output_length": 1500,
+    "min_confirm_gap_seconds": 3.0,
+    "max_confirm_gap_seconds": 300.0
+  },
   "iot":{
       "devices": [
     ]

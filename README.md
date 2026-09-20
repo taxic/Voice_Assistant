@@ -135,6 +135,11 @@ python settings_gui.py
 - "Add a note about the meeting"
 - "Show my todos"
 
+**Coding:**
+- "Write me a script that renames all files in a folder to lowercase"
+- "What does this code print: [describe or read out the code]"
+- "Run that script you just wrote" (asks for confirmation first, then run again to confirm)
+
 ### Interrupt Commands
 
 You can interrupt the assistant at any time by saying:
@@ -238,6 +243,27 @@ Automatically suggests appropriate default times and durations for calendar even
 }
 ```
 
+### Python Code Execution
+
+The assistant can write and run Python on request - "write me a script that renames these files", "what does this print". Not a real sandbox (no container, no resource limits beyond a timeout) - the trust model is your own request on your own machine, with two real safety measures instead:
+
+- **Write is instant, run is gated**: Saving a script (`write_code_file`) needs no confirmation - a file on disk can't do anything by itself. Actually running code goes through `propose_code_run` (stages it, describes what it'll do, doesn't execute) then `confirm_code_run` (actually runs it) - the assistant always describes what it's about to run and waits for you to say yes before calling `confirm_code_run`.
+- **The confirmation gate is enforced in code, not just prompted**: the LLM agent loop can chain several tool calls together within a single turn before you get to say anything - so a system-prompt instruction alone ("ask before running") isn't a real guarantee a 7B model won't occasionally skip. `confirm_code_run` refuses to run anything staged less than `coding.min_confirm_gap_seconds` ago (default 3s) - a same-turn propose-then-confirm chain happens in milliseconds (LLM inference only), while a real confirmation always takes longer (the question has to be spoken via TTS, then you have to hear it and reply, then STT has to process your answer). A stale proposal older than `coding.max_confirm_gap_seconds` (default 5 minutes) is refused too, so a leftover "yes" long after the fact can't trigger old code.
+- **Execution limits**: a subprocess timeout (`coding.execution_timeout_seconds`, default 10s) and an output length cap (`coding.max_output_length`, default 1500 chars, since TTS reading back a huge wall of output isn't useful).
+- Saved scripts live in `scripts/` (gitignored, created automatically) - filenames are restricted to a plain `name.py` pattern, no subfolders or path traversal.
+
+#### Coding Configuration
+```json
+{
+  "coding": {
+    "execution_timeout_seconds": 10,
+    "max_output_length": 1500,
+    "min_confirm_gap_seconds": 3.0,
+    "max_confirm_gap_seconds": 300.0
+  }
+}
+```
+
 ### Piper TTS (Text-to-Speech)
 
 - **Natural Voices**: Neural network-based speech synthesis
@@ -305,6 +331,8 @@ Assistant/
 ├── spotify_interface.py     # Spotify integration
 ├── calendar_cache_sync.py   # Local calendar caching + background sync with Google
 ├── local_calendar_db.py     # SQLite-backed local calendar cache
+├── code_execution.py        # Python code writing/execution (propose-then-confirm gated)
+├── scripts/                 # Saved/generated scripts (gitignored)
 ├── config.json             # Configuration file
 └── README.md               # This comprehensive guide
 ```

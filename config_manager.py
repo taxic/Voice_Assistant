@@ -149,6 +149,12 @@ class ConfigManager:
             },
             "paths": {
                 "memory_file": "memory.db"
+            },
+            "coding": {
+                "execution_timeout_seconds": 10,
+                "max_output_length": 1500,
+                "min_confirm_gap_seconds": 3.0,
+                "max_confirm_gap_seconds": 300.0
             }
         }
 

@@ -5,6 +5,7 @@ from calendar_interface import GoogleCalendar
 from spotify_interface import SpotifyInterface
 from web_search import web_searcher
 from notion_interface import NotionInterface
+from code_execution import code_executor
 from config_manager import config
 import dateparser
 import time
@@ -793,6 +794,34 @@ def get_upcoming_events(days_ahead=None):
     except Exception as e:
         print(f"[ERROR] Failed to get upcoming events: {e}")
         return "Sorry, I couldn't check upcoming events right now."
+
+def write_code_file(filename, code, description=""):
+    """Save Python code to a script file (no execution)"""
+    try:
+        return code_executor.write_file(filename, code, description)
+    except ValueError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to write code file: {e}")
+        return "Sorry, I couldn't save that script."
+
+def propose_code_run(description, code=None, filename=None):
+    """Stage Python code to run, pending user confirmation"""
+    try:
+        return code_executor.propose_run(description, code=code, filename=filename)
+    except ValueError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to propose code run: {e}")
+        return "Sorry, I couldn't set that up to run."
+
+def confirm_code_run():
+    """Actually execute the currently staged code"""
+    try:
+        return code_executor.confirm_run()
+    except Exception as e:
+        print(f"[ERROR] Failed to run staged code: {e}")
+        return "Sorry, something went wrong trying to run that."
 
 # Notion Commands
 notion = NotionInterface()

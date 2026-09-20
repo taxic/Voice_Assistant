@@ -315,6 +315,30 @@ TOOL_SCHEMAS = [
     }},
 
     {"type": "function", "function": {
+        "name": "write_code_file",
+        "description": "Write Python code to a saved script file. Safe to call any time - saving a file doesn't run anything, so no confirmation is needed.",
+        "parameters": {"type": "object", "properties": {
+            "filename": {"type": "string", "description": "File name ending in .py, e.g. 'rename_files.py'. Letters, numbers, underscores and hyphens only - no folders."},
+            "code": {"type": "string", "description": "The full Python source code to save."},
+            "description": {"type": "string", "description": "One-line description of what the script does, saved as a header comment."},
+        }, "required": ["filename", "code"]},
+    }},
+    {"type": "function", "function": {
+        "name": "propose_code_run",
+        "description": "Stage Python code to run - this does NOT execute it. It only records what would run and returns a description for you to read back to the user. You must get an explicit yes from them in a LATER reply before calling confirm_code_run - never call confirm_code_run in the same turn as this.",
+        "parameters": {"type": "object", "properties": {
+            "description": {"type": "string", "description": "Plain-language summary of what this code does, to read back to the user so they know what they're agreeing to."},
+            "code": {"type": "string", "description": "Python code to run. Give this OR filename, not both."},
+            "filename": {"type": "string", "description": "Name of a previously saved script (from write_code_file) to run instead of fresh code. Give this OR code, not both."},
+        }, "required": ["description"]},
+    }},
+    {"type": "function", "function": {
+        "name": "confirm_code_run",
+        "description": "Actually execute the code most recently staged by propose_code_run. Only call this after the user has explicitly confirmed in a reply that came after you asked - never immediately after propose_code_run.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+
+    {"type": "function", "function": {
         "name": "end_conversation",
         "description": "Call this ONLY when the user is clearly ending the interaction (e.g. 'goodbye', 'that's all, thanks', 'bye').",
         "parameters": {"type": "object", "properties": {}, "required": []},
@@ -448,6 +472,9 @@ def build_tools(llm):
         "append_to_notion_page": commands.append_to_notion_page,
         "get_notion_page_content": commands.get_notion_page_content,
 
+        "write_code_file": commands.write_code_file,
+        "propose_code_run": commands.propose_code_run,
+        "confirm_code_run": commands.confirm_code_run,
         "end_conversation": _make_end_conversation(),
     }
     schemas = list(TOOL_SCHEMAS)

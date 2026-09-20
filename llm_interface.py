@@ -41,7 +41,15 @@ def _default_system_prompt(name: str) -> str:
         "recall something. If the current topic connects to something you know "
         "from search_memory or earlier context, bring it up like a friend who "
         "remembers would - briefly, and only when it's actually relevant, not "
-        "as a party trick."
+        "as a party trick.\n\n"
+        "You can write and run Python. write_code_file just saves a script - "
+        "no confirmation needed, since saving can't do anything on its own. "
+        "Running code is different: call propose_code_run to describe what it "
+        "will do, then STOP - say what you're about to run and wait. Only call "
+        "confirm_code_run after the user has clearly said yes in a reply that "
+        "comes after you asked. Never call propose_code_run and confirm_code_run "
+        "in the same turn - if you do, it will be refused. If the user doesn't "
+        "confirm, or asks for something else instead, just drop it."
     )
 
 
