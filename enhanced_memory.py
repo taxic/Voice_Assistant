@@ -2,12 +2,13 @@
 
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Any
 import hashlib
 from dataclasses import dataclass
 from collections import deque
 
+import dateparser
 import numpy as np
 
 from config_manager import config
@@ -176,7 +177,25 @@ class EnhancedMemory:
                 timestamp TEXT NOT NULL
             )
         """)
-        
+
+        # Dated events (birthdays, anniversaries, appointments) - distinct
+        # from long_term_memory because these need real date arithmetic
+        # ("what's due in the next N days"), which free-text content can't
+        # reliably support.
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                event_date TEXT NOT NULL,
+                recurs_yearly INTEGER DEFAULT 0,
+                category TEXT DEFAULT 'general',
+                tags TEXT,
+                last_reminded_date TEXT
+            )
+        """)
+
         self.conn.commit()
 
     # Every column each table is expected to have beyond its PRIMARY KEY,
@@ -218,6 +237,16 @@ class EnhancedMemory:
             "importance": "INTEGER DEFAULT 1",
             "tags": "TEXT",
             "metadata": "TEXT",
+        },
+        "events": {
+            "created_at": "TEXT",
+            "title": "TEXT",
+            "description": "TEXT",
+            "event_date": "TEXT",
+            "recurs_yearly": "INTEGER DEFAULT 0",
+            "category": "TEXT DEFAULT 'general'",
+            "tags": "TEXT",
+            "last_reminded_date": "TEXT",
         },
     }
 
@@ -483,7 +512,136 @@ class EnhancedMemory:
 
         self.conn.commit()
         return self.cursor.lastrowid
-    
+
+    def save_event(self, title: str, event_date: str, recurs_yearly: bool = False,
+                  description: str = "", category: str = "general",
+                  tags: List[str] = None) -> int:
+        """Save a dated event (birthday, anniversary, appointment) for later
+        reminders. `event_date` accepts ISO format (YYYY-MM-DD) or natural
+        language ("March 3rd", "next Friday") - parsed with dateparser and
+        normalized to ISO before storing. Raises ValueError if it can't be
+        parsed at all, so callers can report a clear error instead of
+        silently storing a bad date."""
+        parsed = self._parse_event_date(event_date)
+        if parsed is None:
+            raise ValueError(f"I couldn't understand the date '{event_date}'.")
+
+        if tags is None:
+            tags = []
+
+        self.cursor.execute("""
+            INSERT INTO events
+            (created_at, title, description, event_date, recurs_yearly, category, tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            datetime.now().isoformat(),
+            title,
+            description,
+            parsed.isoformat(),
+            1 if recurs_yearly else 0,
+            category,
+            json.dumps(tags),
+        ))
+
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    @staticmethod
+    def _parse_event_date(event_date: str) -> Optional[date]:
+        """Best-effort parse of an event date string to a date object."""
+        try:
+            return datetime.strptime(event_date, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            pass
+        parsed = dateparser.parse(event_date, settings={"PREFER_DATES_FROM": "future"})
+        return parsed.date() if parsed else None
+
+    @staticmethod
+    def _next_occurrence(stored_date: date, recurs_yearly: bool, today: date) -> Optional[date]:
+        """Work out the next real-world occurrence of a stored event date.
+
+        Non-recurring events that have already passed return None (they're
+        not "upcoming" anymore). Recurring events roll forward to this year
+        or next year as needed; Feb 29 falls back to Feb 28 in non-leap
+        years rather than raising.
+        """
+        def _in_year(year):
+            try:
+                return stored_date.replace(year=year)
+            except ValueError:
+                return stored_date.replace(year=year, day=28)
+
+        if not recurs_yearly:
+            return stored_date if stored_date >= today else None
+
+        occurrence = _in_year(today.year)
+        if occurrence < today:
+            occurrence = _in_year(today.year + 1)
+        return occurrence
+
+    def get_upcoming_events(self, days_ahead: int = None, skip_reminded_today: bool = False) -> List[Dict]:
+        """Return events due within `days_ahead` days (default from config),
+        nearest first. `skip_reminded_today` excludes events already
+        surfaced today - used for the once-a-day wake-time reminder so the
+        same event isn't repeated every single time the wake word is heard,
+        while the LLM-facing lookup tool leaves it False so asking "what's
+        coming up" always shows everything regardless of what's already
+        been mentioned."""
+        if days_ahead is None:
+            days_ahead = config.get('memory.reminder_window_days', 3)
+
+        today = date.today()
+        today_str = today.isoformat()
+
+        self.cursor.execute("""
+            SELECT id, title, description, event_date, recurs_yearly, category, tags, last_reminded_date
+            FROM events
+        """)
+
+        results = []
+        for row in self.cursor.fetchall():
+            event_id, title, description, event_date_str, recurs_yearly, category, tags_json, last_reminded = row
+            try:
+                stored_date = datetime.strptime(event_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+
+            occurrence = self._next_occurrence(stored_date, bool(recurs_yearly), today)
+            if occurrence is None:
+                continue
+
+            days_until = (occurrence - today).days
+            if not (0 <= days_until <= days_ahead):
+                continue
+            if skip_reminded_today and last_reminded == today_str:
+                continue
+
+            results.append({
+                'id': event_id,
+                'title': title,
+                'description': description,
+                'category': category,
+                'tags': json.loads(tags_json) if tags_json else [],
+                'event_date': occurrence.isoformat(),
+                'days_until': days_until,
+                'recurs_yearly': bool(recurs_yearly),
+            })
+
+        results.sort(key=lambda e: e['days_until'])
+        return results
+
+    def mark_events_reminded(self, event_ids: List[int], on_date: str = None):
+        """Record that these events were just surfaced, so a same-day
+        wake-time check doesn't repeat them."""
+        if not event_ids:
+            return
+        on_date = on_date or date.today().isoformat()
+        self.cursor.executemany(
+            "UPDATE events SET last_reminded_date = ? WHERE id = ?",
+            [(on_date, event_id) for event_id in event_ids]
+        )
+        self.conn.commit()
+
     def get_short_term_context(self, limit: int = None) -> str:
         """Get short-term memory context for LLM"""
         if limit is None:
@@ -665,7 +823,11 @@ class EnhancedMemory:
         # Total interactions
         self.cursor.execute("SELECT COUNT(*) FROM interactions")
         total_interactions = self.cursor.fetchone()[0]
-        
+
+        # Tracked events
+        self.cursor.execute("SELECT COUNT(*) FROM events")
+        events_count = self.cursor.fetchone()[0]
+
         # Categories
         self.cursor.execute("""
             SELECT category, COUNT(*) 
@@ -679,6 +841,7 @@ class EnhancedMemory:
             'short_term_memory_count': short_term_count,
             'long_term_memory_count': long_term_count,
             'total_interactions': total_interactions,
+            'events_count': events_count,
             'current_session_id': self.current_session_id,
             'conversation_length': self.conversation_context.conversation_length,
             'current_topic': self.conversation_context.topic,

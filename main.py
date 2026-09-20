@@ -38,6 +38,27 @@ def handle_interrupt_during_processing(recognizer, llm, tts):
     recognizer.stop_interrupt_detection()
 
 
+def _build_reminder_phrase(events):
+    """Turn a list of upcoming-event dicts (from EnhancedMemory.get_upcoming_events)
+    into a short spoken aside, or None if there's nothing to say. Caps how
+    many get read out at once so a busy week doesn't turn the greeting into
+    a full briefing."""
+    if not events:
+        return None
+
+    parts = []
+    for event in events[:3]:
+        if event['days_until'] == 0:
+            parts.append(f"it's {event['title']} today")
+        elif event['days_until'] == 1:
+            parts.append(f"{event['title']} is tomorrow")
+        else:
+            parts.append(f"{event['title']} is in {event['days_until']} days")
+
+    joined = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f", and {parts[-1]}"
+    return f"Oh, by the way - {joined}."
+
+
 def is_interrupt_command(command):
     """Check if the command is an interrupt-related command.
 
@@ -136,6 +157,17 @@ def main():
     while not should_exit:
         recognizer.listen_for_wake_word()
         wake_response = response_variations.get_wake_response()
+
+        # Surface any due-soon events (birthdays, anniversaries, appointments)
+        # once per day, worked into the greeting rather than requiring the
+        # user to ask - skip_reminded_today keeps this from repeating on
+        # every single wake word said today.
+        due_events = memory.get_upcoming_events(skip_reminded_today=True)
+        reminder_phrase = _build_reminder_phrase(due_events)
+        if reminder_phrase:
+            wake_response = f"{wake_response} {reminder_phrase}"
+            memory.mark_events_reminded([event['id'] for event in due_events])
+
         tts.speak(wake_response, check_interrupts=False)
 
         command = recognizer.listen_for_command(timeout=command_timeout)

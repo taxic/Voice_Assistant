@@ -666,6 +666,7 @@ def get_memory_stats():
         response_parts.append(f"\n• Short-term memory: {stats['short_term_memory_count']} items")
         response_parts.append(f"• Long-term memory: {stats['long_term_memory_count']} items")
         response_parts.append(f"• Total interactions: {stats['total_interactions']}")
+        response_parts.append(f"• Tracked events: {stats['events_count']}")
         response_parts.append(f"• Current session length: {stats['conversation_length']} interactions")
         response_parts.append(f"• Current topic: {stats['current_topic']}")
         
@@ -740,6 +741,58 @@ def search_my_memory(query):
     except Exception as e:
         print(f"[ERROR] Failed to search memory: {e}")
         return "Sorry, I couldn't search your memories at this time."
+
+def save_event(title, event_date, recurs_yearly=False, description="", category="general"):
+    """Save a dated event (birthday, anniversary, appointment) for later reminders"""
+    try:
+        from enhanced_memory import EnhancedMemory
+        temp_memory = EnhancedMemory()
+
+        temp_memory.save_event(
+            title=title,
+            event_date=event_date,
+            recurs_yearly=recurs_yearly,
+            description=description,
+            category=category,
+        )
+
+        temp_memory.close()
+
+        recur_note = " every year" if recurs_yearly else ""
+        return f"Got it, I'll remember {title} on {event_date}{recur_note}."
+
+    except ValueError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to save event: {e}")
+        return "Sorry, I couldn't save that event."
+
+def get_upcoming_events(days_ahead=None):
+    """Get events coming up within the reminder window"""
+    try:
+        from enhanced_memory import EnhancedMemory
+        temp_memory = EnhancedMemory()
+
+        events = temp_memory.get_upcoming_events(days_ahead=days_ahead)
+
+        temp_memory.close()
+
+        if not events:
+            window = days_ahead or config.get('memory.reminder_window_days', 3)
+            return f"Nothing coming up in the next {window} days."
+
+        response_parts = ["Here's what's coming up:"]
+        for event in events:
+            when = "today" if event['days_until'] == 0 else \
+                   "tomorrow" if event['days_until'] == 1 else \
+                   f"in {event['days_until']} days"
+            response_parts.append(f"\n• {event['title']} - {when} ({event['event_date']})")
+
+        return "\n".join(response_parts)
+
+    except Exception as e:
+        print(f"[ERROR] Failed to get upcoming events: {e}")
+        return "Sorry, I couldn't check upcoming events right now."
 
 # Notion Commands
 notion = NotionInterface()

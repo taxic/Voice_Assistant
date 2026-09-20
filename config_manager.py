@@ -129,7 +129,8 @@ class ConfigManager:
                 "contextual_search_limit": 3,
                 "short_term_max_items": 50,
                 "short_term_context_limit": 10,
-                "long_term_context_limit": 5
+                "long_term_context_limit": 5,
+                "reminder_window_days": 3
             },
             "assistant": {
                 "name": "Assistant",

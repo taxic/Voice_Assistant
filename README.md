@@ -157,6 +157,7 @@ The assistant maintains conversation context using:
 - **Categorized Storage**: Different types of interactions (weather, calendar, etc.)
 - **Importance Scoring**: A 1-10 field on every stored item, used to rank results - set explicitly (e.g. the assistant's own `save_memory` tool saves at high importance), not computed automatically from content
 - **Auto-summarization**: Not yet real - the current "conversation summary" is a placeholder that just lists recent topic labels, not an actual LLM-generated summary. Known gap, not yet fixed.
+- **Dated Events & Reminders**: Birthdays, anniversaries, and appointments are stored separately from free-text memory (a real `event_date`, not just text) via the `save_event` tool, so "what's coming up" can actually be computed instead of guessed from keywords. Yearly-recurring events (birthdays, anniversaries) automatically roll forward to their next occurrence, including correct Feb 29 handling in non-leap years. The assistant checks for anything due within `memory.reminder_window_days` (default 3) the first time you say the wake word each day and works it into its greeting - once per event per day, not on every single wake-up. Ask `get_upcoming_events` any time for a full list regardless of what's already been mentioned.
 
 Run `ollama pull nomic-embed-text` alongside your chat model - semantic search needs it separately.
 
@@ -168,7 +169,8 @@ Run `ollama pull nomic-embed-text` alongside your chat model - semantic search n
     "contextual_search_limit": 3,
     "short_term_max_items": 50,
     "short_term_context_limit": 10,
-    "long_term_context_limit": 5
+    "long_term_context_limit": 5,
+    "reminder_window_days": 3
   },
   "llm": {
     "embed_model": "nomic-embed-text",
@@ -333,6 +335,7 @@ All configurable in `config.json` under `llm`:
 - Database: `memory.db` (SQLite - despite the old filename, this was never actually JSON) - not tracked in git, see `.gitignore`
 - Semantic search via `nomic-embed-text` embeddings, with keyword fallback - see `llm.embed_model` above
 - Context limits: Configurable per memory type
+- Dated events (birthdays, anniversaries, appointments) live in a separate `events` table with a real date column and optional yearly recurrence - see `memory.reminder_window_days` above
 
 ### Audio Settings
 - TTS: Piper neural synthesis

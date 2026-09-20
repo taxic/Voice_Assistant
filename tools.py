@@ -246,6 +246,23 @@ TOOL_SCHEMAS = [
         "description": "Get statistics about the memory system (how many items are stored, categories, etc).",
         "parameters": {"type": "object", "properties": {}, "required": []},
     }},
+    {"type": "function", "function": {
+        "name": "save_event",
+        "description": "Remember a dated event - a birthday, anniversary, or appointment - so the assistant can remind about it later. Use this instead of save_memory whenever the user tells you about something tied to a specific date.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string", "description": "Short label, e.g. \"Sarah's birthday\"."},
+            "event_date": {"type": "string", "description": "The date in YYYY-MM-DD format. For a yearly-recurring event with no year mentioned, use this year (or next year if the date already passed this year)."},
+            "recurs_yearly": {"type": "boolean", "description": "True for birthdays/anniversaries that repeat every year. False for one-off events like a single appointment."},
+            "description": {"type": "string", "description": "Optional extra detail."},
+        }, "required": ["title", "event_date", "recurs_yearly"]},
+    }},
+    {"type": "function", "function": {
+        "name": "get_upcoming_events",
+        "description": "Look up dated events (birthdays, anniversaries, appointments) coming up soon.",
+        "parameters": {"type": "object", "properties": {
+            "days_ahead": {"type": "integer", "description": "How many days ahead to check. Defaults to the configured reminder window if not given."},
+        }, "required": []},
+    }},
 
     {"type": "function", "function": {
         "name": "create_notion_todo",
@@ -421,6 +438,8 @@ def build_tools(llm):
         "save_memory": _make_save_memory(),
         "search_memory": commands.search_my_memory,
         "get_memory_stats": commands.get_memory_stats,
+        "save_event": commands.save_event,
+        "get_upcoming_events": commands.get_upcoming_events,
 
         "create_notion_todo": commands.create_notion_todo,
         "create_notion_note": commands.create_notion_note,

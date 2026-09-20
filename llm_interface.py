@@ -32,7 +32,16 @@ def _default_system_prompt(name: str) -> str:
         "to already know next time - save it right then, without asking "
         "permission or announcing that you're doing it. Don't save one-off, "
         "situational details (what they want for lunch today) or anything "
-        "already covered by a calendar/task tool."
+        "already covered by a calendar/task tool.\n\n"
+        "If what they mention is tied to a specific date - a birthday, an "
+        "anniversary, an appointment - use save_event instead of save_memory, "
+        "so it can actually be tracked and surfaced as a reminder later. Set "
+        "recurs_yearly for anything that repeats annually, like a birthday.\n\n"
+        "Weave in relevant memory naturally, not just when directly asked to "
+        "recall something. If the current topic connects to something you know "
+        "from search_memory or earlier context, bring it up like a friend who "
+        "remembers would - briefly, and only when it's actually relevant, not "
+        "as a party trick."
     )
 
 
