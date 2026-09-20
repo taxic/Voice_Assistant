@@ -264,25 +264,37 @@ The assistant can write and run Python on request - "write me a script that rena
 }
 ```
 
-### Piper TTS (Text-to-Speech)
+### Text-to-Speech: Kokoro (default) or Piper
 
-- **Natural Voices**: Neural network-based speech synthesis
-- **British English**: Default voice is `en_GB-southern_english_female-low`
+Two interchangeable TTS engines, picked via `tts.engine` - `interruptible_tts.py` builds whichever is configured and falls back to Piper automatically if Kokoro can't actually be used (package not installed, model download failed), so the assistant doesn't go silent over a TTS engine problem.
+
+- **Kokoro** (`kokoro_tts.py`, default): an 82M-parameter StyleTTS2-based model - noticeably more natural than Piper (third-party benchmarks put it around 4.2 MOS, close to real narration quality) for a similar hardware footprint (~2-3GB VRAM or CPU-only). Needs `pip install kokoro-onnx` (see requirements.txt) plus its ONNX model + voice-pack files, which download automatically on first run (~88MB for the default `int8` variant) into `kokoro/models/`.
+- **Piper** (`piper_tts.py`): smaller and faster (near-instant first audio), but audibly more robotic. Still available as `tts.engine: "piper"`, or as the automatic fallback if Kokoro isn't set up.
+
+Both share the same behavior:
 - **Streamed, sentence-by-sentence**: The assistant starts speaking as soon as the LLM finishes each sentence, instead of waiting for the whole response to generate - noticeably cuts the silence before you hear anything, especially on longer answers
-- **In-process playback**: Piper synthesizes to raw PCM (`--output-raw`) played directly via `sounddevice`, rather than writing a temp WAV file and shelling out to a separate audio-player process per chunk
+- **In-process playback**: synthesized audio plays directly via `sounddevice`, no temp files or separate player subprocess per chunk
 - **Interrupt Support**: `sd.stop()` halts audio immediately mid-sentence, not just at the next chunk boundary
-- **Automatic Setup**: Downloads voice models on first run
+- **Automatic Setup**: downloads whatever model files it needs on first run
 
 #### TTS Configuration
 ```json
 {
   "tts": {
+    "engine": "kokoro",
     "piper": {
       "voice": "en_GB-southern_english_female-low"
+    },
+    "kokoro": {
+      "model_variant": "int8",
+      "voice": "bf_emma",
+      "speed": 1.0,
+      "lang": "en-gb"
     }
   }
 }
 ```
+`kokoro.model_variant` is `int8` (88MB, default), `fp16` (169MB) or `f32` (310MB, highest quality) - all trade download size and inference speed for fidelity. `kokoro.voice` picks from Kokoro's built-in voice packs (British: `bf_alice`/`bf_emma`/`bf_isabella`/`bf_lily` female, `bm_daniel`/`bm_fable`/`bm_george`/`bm_lewis` male; American voices use the `af_`/`am_` prefix instead, e.g. `af_heart`).
 
 ### Silent Light Control
 
@@ -324,7 +336,8 @@ Assistant/
 ├── tapo_light_wrapper.py      # Tapo smart light control
 ├── iot_manager.py            # IoT device management
 ├── iot_commands.py           # IoT command processing
-├── piper_tts.py             # Piper TTS implementation
+├── kokoro_tts.py             # Kokoro TTS implementation (default engine)
+├── piper_tts.py             # Piper TTS implementation (fallback engine)
 ├── web_search.py            # Web search functionality
 ├── smart_event_times.py     # Smart calendar time suggestions
 ├── notion_interface.py      # Notion API integration
@@ -373,25 +386,7 @@ All configurable in `config.json` under `llm`:
 
 ## 📋 Requirements
 
-Create a `requirements.txt` file with dependencies:
-
-```
-vosk==0.3.45
-sounddevice==0.4.6
-requests==2.31.0
-dateparser==1.1.8
-google-auth==2.23.4
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
-google-api-python-client==2.108.0
-pytz==2023.3
-nltk==3.8.1
-numpy==1.24.0
-simpleaudio==1.0.4
-beautifulsoup4==4.12.0
-spotipy==2.22.0
-notion-client==2.0.0
-```
+See `requirements.txt` for the full, up-to-date dependency list - install with `pip install -r requirements.txt`.
 
 ## 🚨 Troubleshooting
 

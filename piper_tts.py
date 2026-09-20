@@ -31,7 +31,7 @@ class PiperTTS:
         self.sample_rate = 22050  # overwritten from the voice config once loaded
 
         # Default voice settings - British English female voice
-        self.default_voice = config.get('tts.voice', 'en_GB-southern_english_female-low')
+        self.default_voice = config.get('tts.piper.voice', 'en_GB-southern_english_female-low')
 
         # Initialize Piper
         self._setup_piper()

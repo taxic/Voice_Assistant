@@ -49,8 +49,15 @@
     "interrupt_check_interval": 0.05
   },
   "tts": {
+    "engine": "kokoro",
     "piper": {
       "voice": "en_GB-southern_english_female-low"
+    },
+    "kokoro": {
+      "model_variant": "int8",
+      "voice": "bf_emma",
+      "speed": 1.0,
+      "lang": "en-gb"
     }
   },
   "memory": {
