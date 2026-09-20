@@ -339,6 +339,49 @@ TOOL_SCHEMAS = [
     }},
 
     {"type": "function", "function": {
+        "name": "play_music",
+        "description": "Search the user's self-hosted Navidrome music library and play the best match in a room, via a Chromecast speaker. Plays one track, not a whole album/playlist queue.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "What to play - a song, artist, album, genre, or playlist name, e.g. 'some jazz', 'my workout playlist', 'Thriller by Michael Jackson'."},
+            "room": {"type": "string", "description": "Which room's speaker to play in, e.g. 'kitchen'. Omit to use the default room."},
+        }, "required": ["query"]},
+    }},
+    {"type": "function", "function": {
+        "name": "pause_music",
+        "description": "Pause music playback in a room.",
+        "parameters": {"type": "object", "properties": {
+            "room": {"type": "string", "description": "Which room to pause. Omit to use the default room."},
+        }, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "resume_music",
+        "description": "Resume paused music playback in a room.",
+        "parameters": {"type": "object", "properties": {
+            "room": {"type": "string", "description": "Which room to resume. Omit to use the default room."},
+        }, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "stop_music",
+        "description": "Stop music playback in a room.",
+        "parameters": {"type": "object", "properties": {
+            "room": {"type": "string", "description": "Which room to stop. Omit to use the default room."},
+        }, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "set_music_volume",
+        "description": "Set music playback volume in a room.",
+        "parameters": {"type": "object", "properties": {
+            "volume_percent": {"type": "integer", "description": "Volume level, 0-100."},
+            "room": {"type": "string", "description": "Which room to adjust. Omit to use the default room."},
+        }, "required": ["volume_percent"]},
+    }},
+    {"type": "function", "function": {
+        "name": "list_music_rooms",
+        "description": "List which rooms have a speaker configured for music playback.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+
+    {"type": "function", "function": {
         "name": "end_conversation",
         "description": "Call this ONLY when the user is clearly ending the interaction (e.g. 'goodbye', 'that's all, thanks', 'bye').",
         "parameters": {"type": "object", "properties": {}, "required": []},
@@ -475,6 +518,12 @@ def build_tools(llm):
         "write_code_file": commands.write_code_file,
         "propose_code_run": commands.propose_code_run,
         "confirm_code_run": commands.confirm_code_run,
+        "play_music": commands.play_music,
+        "pause_music": commands.pause_music,
+        "resume_music": commands.resume_music,
+        "stop_music": commands.stop_music,
+        "set_music_volume": commands.set_music_volume,
+        "list_music_rooms": commands.list_music_rooms,
         "end_conversation": _make_end_conversation(),
     }
     schemas = list(TOOL_SCHEMAS)

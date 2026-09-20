@@ -16,3 +16,4 @@ nltk==3.8.1
 msal==1.26.0
 paho-mqtt==1.6.1
 kokoro-onnx>=0.6.1
+PyChromecast>=14.0.0

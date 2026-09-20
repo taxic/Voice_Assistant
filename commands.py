@@ -6,6 +6,8 @@ from spotify_interface import SpotifyInterface
 from web_search import web_searcher
 from notion_interface import NotionInterface
 from code_execution import code_executor
+from navidrome_interface import NavidromeInterface, NavidromeError
+from chromecast_interface import chromecast_manager, ChromecastError
 from config_manager import config
 import dateparser
 import time
@@ -15,6 +17,7 @@ from datetime import timedelta
 
 calendar = GoogleCalendar()
 spotify = SpotifyInterface()
+navidrome = NavidromeInterface()
 
 def get_weather(location, target_time=None):
     try:
@@ -822,6 +825,111 @@ def confirm_code_run():
     except Exception as e:
         print(f"[ERROR] Failed to run staged code: {e}")
         return "Sorry, something went wrong trying to run that."
+
+_PLAYLIST_MATCH_FILLER_WORDS = {"my", "the", "a", "an", "some", "play", "playlist", "please"}
+
+
+def _significant_words(text):
+    """Words worth matching on for playlist-name detection - drops short
+    filler words so e.g. 'play my workout playlist' reduces to {'workout'}."""
+    return {w for w in text.lower().split() if w not in _PLAYLIST_MATCH_FILLER_WORDS and len(w) > 2}
+
+
+# Navidrome / Chromecast Commands (room-targeted music playback)
+def play_music(query, room=None):
+    """Search the Navidrome library and play the best match in a room.
+
+    Plays a single track, not a continuous queue - if a playlist or album
+    name matches, it starts the first song from it rather than queuing the
+    whole thing. Full queue/continuous playback is a possible follow-up
+    once this basic path is confirmed working.
+    """
+    try:
+        query_words = _significant_words(query)
+        playlists = navidrome.get_playlists()
+        matched_playlist = next(
+            (p for p in playlists if query_words & _significant_words(p.get('name', ''))),
+            None
+        )
+
+        if matched_playlist:
+            songs = navidrome.get_playlist_songs(matched_playlist['id'])
+            if not songs:
+                return f"Found the playlist '{matched_playlist['name']}' but it's empty."
+            song = songs[0]
+            title = f"{song.get('title', 'track')} from {matched_playlist['name']}"
+        else:
+            results = navidrome.search(query)
+            song = None
+            if results['songs']:
+                song = results['songs'][0]
+            elif results['albums']:
+                album_songs = navidrome.get_album_songs(results['albums'][0]['id'])
+                song = album_songs[0] if album_songs else None
+
+            if not song:
+                return f"Sorry, I couldn't find anything matching '{query}' in your music library."
+            title = song.get('title', query)
+
+        stream_url = navidrome.stream_url(song['id'])
+        return chromecast_manager.play(room, stream_url, title=title)
+
+    except (NavidromeError, ChromecastError) as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to play music: {e}")
+        return "Sorry, I couldn't play that."
+
+def pause_music(room=None):
+    """Pause playback in a room"""
+    try:
+        return chromecast_manager.pause(room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to pause music: {e}")
+        return "Sorry, I couldn't pause that."
+
+def resume_music(room=None):
+    """Resume playback in a room"""
+    try:
+        return chromecast_manager.resume(room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to resume music: {e}")
+        return "Sorry, I couldn't resume that."
+
+def stop_music(room=None):
+    """Stop playback in a room"""
+    try:
+        return chromecast_manager.stop(room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to stop music: {e}")
+        return "Sorry, I couldn't stop that."
+
+def set_music_volume(volume_percent, room=None):
+    """Set playback volume (0-100) in a room"""
+    try:
+        return chromecast_manager.set_volume(volume_percent, room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to set music volume: {e}")
+        return "Sorry, I couldn't change the volume."
+
+def list_music_rooms():
+    """List rooms configured for music playback"""
+    try:
+        rooms = chromecast_manager.list_rooms()
+        if not rooms:
+            return "No rooms are configured for music yet."
+        return "Available rooms: " + ", ".join(rooms) + "."
+    except Exception as e:
+        print(f"[ERROR] Failed to list music rooms: {e}")
+        return "Sorry, I couldn't list the rooms."
 
 # Notion Commands
 notion = NotionInterface()

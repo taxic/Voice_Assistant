@@ -74,6 +74,30 @@ pip install -r requirements.txt
    export SPOTIFY_REDIRECT_URI="http://localhost:8888/callback"
    ```
 
+### Navidrome + Chromecast Setup (Optional)
+
+Room-targeted playback from a self-hosted [Navidrome](https://www.navidrome.org/) music server, cast to Google Cast/Chromecast speakers.
+
+1. Add environment variables for your Navidrome server:
+   ```bash
+   export NAVIDROME_URL="http://your-mini-pc:4533"
+   export NAVIDROME_USERNAME="your_username"
+   export NAVIDROME_PASSWORD="your_password"
+   ```
+2. In `config.json`, map room names to each Chromecast device's actual Cast friendly name (Google Home app → device → settings shows this) and pick a default room:
+   ```json
+   "chromecast": {
+     "rooms": {
+       "kitchen": "Kitchen Speaker",
+       "living room": "Living Room TV"
+     },
+     "default_room": "kitchen"
+   }
+   ```
+3. The device running the assistant needs to be on the same network/subnet as the Chromecasts - device discovery uses mDNS, which doesn't cross subnets.
+
+Plays one track per request rather than a continuous queue/playlist right now - see the Music/Chromecast section under Advanced Features for why, and what a fuller version would need.
+
 ### Ollama Setup
 
 ```bash
@@ -114,11 +138,17 @@ python settings_gui.py
 - "Turn off all lights"
 - "Set the lounge light to warm white"
 
-**Music Control:**
+**Music Control (Spotify):**
 - "Play my workout playlist"
 - "Skip to the next song"
 - "Pause the music"
 - "Turn up the volume"
+
+**Room-Targeted Music (Navidrome + Chromecast):**
+- "Play some jazz in the kitchen"
+- "Play my workout playlist in the living room"
+- "Pause the kitchen"
+- "Set the living room volume to 40%"
 
 **Web Search:**
 - "Search for the latest Python tutorials"
@@ -219,6 +249,34 @@ Automatically suggests appropriate default times and durations for calendar even
         "model": "L530"
       }
     ]
+  }
+}
+```
+
+### Music: Navidrome + Chromecast (Room-Targeted Playback)
+
+- **Voice Control**: "Play some jazz in the kitchen", "play my workout playlist", "pause the living room"
+- **Library Search**: Matches songs, albums, and playlists in your self-hosted Navidrome library via the Subsonic API - nothing leaves your network except to the Chromecast devices themselves
+- **Room Targeting**: `chromecast.rooms` maps room names to each Chromecast's actual device name; omitting a room falls back to `chromecast.default_room`
+- **Discovery Caching**: Devices are found once via mDNS (a few-second scan) and cached for the rest of the session, not re-scanned on every command - if a cached device stops responding (rebooted, new IP), it automatically re-discovers once and retries
+- **Current limitation**: plays one track per request, not a continuous queue - "play some jazz" plays one jazz track, not an endless jazz session. Chromecast does support real queueing (`enqueue`-based, with a status-listener pattern to auto-advance), but that's meaningfully more code to get right, so it's a deliberate follow-up rather than something guessed at and shipped unverified. Worth revisiting once the basic cast-and-play path is confirmed working on real hardware.
+
+#### Navidrome/Chromecast Configuration
+```json
+{
+  "navidrome": {
+    "url_env": "NAVIDROME_URL",
+    "username_env": "NAVIDROME_USERNAME",
+    "password_env": "NAVIDROME_PASSWORD",
+    "timeout_seconds": 10
+  },
+  "chromecast": {
+    "rooms": {
+      "kitchen": "Kitchen Speaker",
+      "living room": "Living Room TV"
+    },
+    "default_room": "kitchen",
+    "discovery_timeout_seconds": 8
   }
 }
 ```
@@ -342,6 +400,8 @@ Assistant/
 ├── smart_event_times.py     # Smart calendar time suggestions
 ├── notion_interface.py      # Notion API integration
 ├── spotify_interface.py     # Spotify integration
+├── navidrome_interface.py    # Navidrome/Subsonic API client (library search + stream URLs)
+├── chromecast_interface.py   # Chromecast discovery/casting for room-targeted playback
 ├── calendar_cache_sync.py   # Local calendar caching + background sync with Google
 ├── local_calendar_db.py     # SQLite-backed local calendar cache
 ├── code_execution.py        # Python code writing/execution (propose-then-confirm gated)

@@ -33,6 +33,17 @@
     "scopes": "user-read-playback-state,user-modify-playback-state,user-read-currently-playing,streaming",
     "cache_file": ".spotify_cache"
   },
+  "navidrome": {
+    "url_env": "NAVIDROME_URL",
+    "username_env": "NAVIDROME_USERNAME",
+    "password_env": "NAVIDROME_PASSWORD",
+    "timeout_seconds": 10
+  },
+  "chromecast": {
+    "rooms": {},
+    "default_room": null,
+    "discovery_timeout_seconds": 8
+  },
   "jokes": {
     "api_url": "https://official-joke-api.appspot.com/random_joke",
     "timeout_seconds": 5,
