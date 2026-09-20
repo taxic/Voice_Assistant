@@ -2,11 +2,12 @@
 import requests
 from datetime import datetime, timedelta
 from calendar_interface import GoogleCalendar
-from outlook_interface import OutlookInterface
-from unified_calendar import UnifiedCalendar
 from spotify_interface import SpotifyInterface
 from web_search import web_searcher
 from notion_interface import NotionInterface
+from code_execution import code_executor
+from navidrome_interface import NavidromeInterface, NavidromeError
+from chromecast_interface import chromecast_manager, ChromecastError
 from config_manager import config
 import dateparser
 import time
@@ -15,9 +16,8 @@ import re
 from datetime import timedelta
 
 calendar = GoogleCalendar()
-outlook = OutlookInterface()
-unified_calendar = UnifiedCalendar()
 spotify = SpotifyInterface()
+navidrome = NavidromeInterface()
 
 def get_weather(location, target_time=None):
     try:
@@ -670,6 +670,7 @@ def get_memory_stats():
         response_parts.append(f"\n• Short-term memory: {stats['short_term_memory_count']} items")
         response_parts.append(f"• Long-term memory: {stats['long_term_memory_count']} items")
         response_parts.append(f"• Total interactions: {stats['total_interactions']}")
+        response_parts.append(f"• Tracked events: {stats['events_count']}")
         response_parts.append(f"• Current session length: {stats['conversation_length']} interactions")
         response_parts.append(f"• Current topic: {stats['current_topic']}")
         
@@ -744,6 +745,191 @@ def search_my_memory(query):
     except Exception as e:
         print(f"[ERROR] Failed to search memory: {e}")
         return "Sorry, I couldn't search your memories at this time."
+
+def save_event(title, event_date, recurs_yearly=False, description="", category="general"):
+    """Save a dated event (birthday, anniversary, appointment) for later reminders"""
+    try:
+        from enhanced_memory import EnhancedMemory
+        temp_memory = EnhancedMemory()
+
+        temp_memory.save_event(
+            title=title,
+            event_date=event_date,
+            recurs_yearly=recurs_yearly,
+            description=description,
+            category=category,
+        )
+
+        temp_memory.close()
+
+        recur_note = " every year" if recurs_yearly else ""
+        return f"Got it, I'll remember {title} on {event_date}{recur_note}."
+
+    except ValueError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to save event: {e}")
+        return "Sorry, I couldn't save that event."
+
+def get_upcoming_events(days_ahead=None):
+    """Get events coming up within the reminder window"""
+    try:
+        from enhanced_memory import EnhancedMemory
+        temp_memory = EnhancedMemory()
+
+        events = temp_memory.get_upcoming_events(days_ahead=days_ahead)
+
+        temp_memory.close()
+
+        if not events:
+            window = days_ahead or config.get('memory.reminder_window_days', 3)
+            return f"Nothing coming up in the next {window} days."
+
+        response_parts = ["Here's what's coming up:"]
+        for event in events:
+            when = "today" if event['days_until'] == 0 else \
+                   "tomorrow" if event['days_until'] == 1 else \
+                   f"in {event['days_until']} days"
+            response_parts.append(f"\n• {event['title']} - {when} ({event['event_date']})")
+
+        return "\n".join(response_parts)
+
+    except Exception as e:
+        print(f"[ERROR] Failed to get upcoming events: {e}")
+        return "Sorry, I couldn't check upcoming events right now."
+
+def write_code_file(filename, code, description=""):
+    """Save Python code to a script file (no execution)"""
+    try:
+        return code_executor.write_file(filename, code, description)
+    except ValueError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to write code file: {e}")
+        return "Sorry, I couldn't save that script."
+
+def propose_code_run(description, code=None, filename=None):
+    """Stage Python code to run, pending user confirmation"""
+    try:
+        return code_executor.propose_run(description, code=code, filename=filename)
+    except ValueError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to propose code run: {e}")
+        return "Sorry, I couldn't set that up to run."
+
+def confirm_code_run():
+    """Actually execute the currently staged code"""
+    try:
+        return code_executor.confirm_run()
+    except Exception as e:
+        print(f"[ERROR] Failed to run staged code: {e}")
+        return "Sorry, something went wrong trying to run that."
+
+_PLAYLIST_MATCH_FILLER_WORDS = {"my", "the", "a", "an", "some", "play", "playlist", "please"}
+
+
+def _significant_words(text):
+    """Words worth matching on for playlist-name detection - drops short
+    filler words so e.g. 'play my workout playlist' reduces to {'workout'}."""
+    return {w for w in text.lower().split() if w not in _PLAYLIST_MATCH_FILLER_WORDS and len(w) > 2}
+
+
+# Navidrome / Chromecast Commands (room-targeted music playback)
+def play_music(query, room=None):
+    """Search the Navidrome library and play the best match in a room.
+
+    Plays a single track, not a continuous queue - if a playlist or album
+    name matches, it starts the first song from it rather than queuing the
+    whole thing. Full queue/continuous playback is a possible follow-up
+    once this basic path is confirmed working.
+    """
+    try:
+        query_words = _significant_words(query)
+        playlists = navidrome.get_playlists()
+        matched_playlist = next(
+            (p for p in playlists if query_words & _significant_words(p.get('name', ''))),
+            None
+        )
+
+        if matched_playlist:
+            songs = navidrome.get_playlist_songs(matched_playlist['id'])
+            if not songs:
+                return f"Found the playlist '{matched_playlist['name']}' but it's empty."
+            song = songs[0]
+            title = f"{song.get('title', 'track')} from {matched_playlist['name']}"
+        else:
+            results = navidrome.search(query)
+            song = None
+            if results['songs']:
+                song = results['songs'][0]
+            elif results['albums']:
+                album_songs = navidrome.get_album_songs(results['albums'][0]['id'])
+                song = album_songs[0] if album_songs else None
+
+            if not song:
+                return f"Sorry, I couldn't find anything matching '{query}' in your music library."
+            title = song.get('title', query)
+
+        stream_url = navidrome.stream_url(song['id'])
+        return chromecast_manager.play(room, stream_url, title=title)
+
+    except (NavidromeError, ChromecastError) as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to play music: {e}")
+        return "Sorry, I couldn't play that."
+
+def pause_music(room=None):
+    """Pause playback in a room"""
+    try:
+        return chromecast_manager.pause(room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to pause music: {e}")
+        return "Sorry, I couldn't pause that."
+
+def resume_music(room=None):
+    """Resume playback in a room"""
+    try:
+        return chromecast_manager.resume(room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to resume music: {e}")
+        return "Sorry, I couldn't resume that."
+
+def stop_music(room=None):
+    """Stop playback in a room"""
+    try:
+        return chromecast_manager.stop(room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to stop music: {e}")
+        return "Sorry, I couldn't stop that."
+
+def set_music_volume(volume_percent, room=None):
+    """Set playback volume (0-100) in a room"""
+    try:
+        return chromecast_manager.set_volume(volume_percent, room)
+    except ChromecastError as e:
+        return f"Sorry, {str(e)}"
+    except Exception as e:
+        print(f"[ERROR] Failed to set music volume: {e}")
+        return "Sorry, I couldn't change the volume."
+
+def list_music_rooms():
+    """List rooms configured for music playback"""
+    try:
+        rooms = chromecast_manager.list_rooms()
+        if not rooms:
+            return "No rooms are configured for music yet."
+        return "Available rooms: " + ", ".join(rooms) + "."
+    except Exception as e:
+        print(f"[ERROR] Failed to list music rooms: {e}")
+        return "Sorry, I couldn't list the rooms."
 
 # Notion Commands
 notion = NotionInterface()
@@ -918,190 +1104,3 @@ def get_notion_page_content(query):
         print(f"[ERROR] Failed to get Notion page content: {e}")
         return "Sorry, I encountered an error retrieving the page content."
 
-# Unified Calendar Commands
-def create_unified_calendar_event(summary, time, duration, description="", location="", provider=None):
-    """Create an event using the unified calendar system"""
-    try:
-        start_time = datetime.fromisoformat(time)
-        end_time = start_time + timedelta(minutes=duration)
-        
-        result = unified_calendar.create_event(
-            summary=summary,
-            start_time=start_time,
-            end_time=end_time,
-            description=description,
-            location=location,
-            provider=provider
-        )
-        
-        return result
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to create unified calendar event: {e}")
-        return f"Sorry, I encountered an error creating the calendar event: {str(e)}"
-
-def get_unified_calendar_events(date_str, provider=None):
-    """Get events for a date from unified calendar system"""
-    try:
-        date_obj = dateparser.parse(date_str)
-        if not date_obj:
-            return "Sorry, I couldn't understand which date you're referring to."
-        
-        return unified_calendar.get_events_for_date(date_obj, provider)
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to get unified calendar events: {e}")
-        return f"Sorry, I encountered an error retrieving calendar events: {str(e)}"
-
-def find_unified_free_time(duration_minutes, date_str, provider=None):
-    """Find free time slot using unified calendar system"""
-    try:
-        date_obj = dateparser.parse(date_str) or datetime.now()
-        
-        free_time = unified_calendar.find_free_time_slot(
-            duration_minutes=duration_minutes,
-            date_obj=date_obj,
-            provider=provider
-        )
-        
-        if free_time:
-            return f"I found a free {duration_minutes}-minute slot at {free_time}"
-        else:
-            return f"Sorry, I couldn't find a free {duration_minutes}-minute slot on {date_obj.strftime('%A, %B %d')}"
-            
-    except Exception as e:
-        print(f"[ERROR] Failed to find free time: {e}")
-        return f"Sorry, I encountered an error finding free time: {str(e)}"
-
-def get_calendar_status():
-    """Get status of all calendar providers"""
-    try:
-        return unified_calendar.get_provider_status()
-    except Exception as e:
-        print(f"[ERROR] Failed to get calendar status: {e}")
-        return "Sorry, I encountered an error getting calendar status."
-
-def authenticate_calendars():
-    """Attempt to authenticate missing calendar providers"""
-    try:
-        return unified_calendar.authenticate_missing_providers()
-    except Exception as e:
-        print(f"[ERROR] Failed to authenticate calendars: {e}")
-        return "Sorry, I encountered an error during calendar authentication."
-
-def get_calendar_summary():
-    """Get a summary of calendar connections"""
-    try:
-        return unified_calendar.get_calendar_summary()
-    except Exception as e:
-        print(f"[ERROR] Failed to get calendar summary: {e}")
-        return "Sorry, I encountered an error getting calendar summary."
-
-# Cache Management Commands
-def refresh_calendar_cache():
-    """Force refresh the calendar cache with latest Google Calendar data"""
-    try:
-        result = calendar.refresh_cache()
-        if result.get('success'):
-            return f"Calendar cache refreshed successfully. {result.get('events_synced', 0)} events synchronized."
-        else:
-            return f"Failed to refresh calendar cache: {result.get('error', 'Unknown error')}"
-    except Exception as e:
-        print(f"[ERROR] Failed to refresh calendar cache: {e}")
-        return "Sorry, I encountered an error refreshing the calendar cache."
-
-def get_calendar_cache_status():
-    """Get the current status of the calendar cache and synchronization"""
-    try:
-        status = calendar.get_cache_status()
-        if 'error' in status:
-            return f"Error getting cache status: {status['error']}"
-
-        response_parts = ["Calendar Cache Status:"]
-        response_parts.append(f"• Sync enabled: {status.get('sync_enabled', 'Unknown')}")
-        response_parts.append(f"• Last full sync: {status.get('last_full_sync', 'Never')}")
-        response_parts.append(f"• Last incremental sync: {status.get('last_incremental_sync', 'Never')}")
-
-        # Add database info
-        db_info = status.get('database_info', {})
-        response_parts.append(f"• Cached events: {db_info.get('events_count', 0)}")
-        response_parts.append(f"• Database size: {db_info.get('database_size_bytes', 0)} bytes")
-
-        return "\n".join(response_parts)
-    except Exception as e:
-        print(f"[ERROR] Failed to get cache status: {e}")
-        return "Sorry, I encountered an error getting the cache status."
-
-def cleanup_calendar_cache(days_to_keep: int = 30):
-    """Clean up old events from the calendar cache"""
-    try:
-        deleted_count = calendar.cleanup_cache(days_to_keep)
-        return f"Cleaned up calendar cache. Removed {deleted_count} old events."
-    except Exception as e:
-        print(f"[ERROR] Failed to cleanup calendar cache: {e}")
-        return "Sorry, I encountered an error cleaning up the calendar cache."
-
-def export_calendar_data(format: str = 'json'):
-    """Export calendar data for backup or analysis"""
-    try:
-        data = calendar.export_cache(format)
-        return f"Calendar data exported in {format.upper()} format ({len(data)} characters)."
-    except Exception as e:
-        print(f"[ERROR] Failed to export calendar data: {e}")
-        return "Sorry, I encountered an error exporting calendar data."
-
-def sync_calendar_now():
-    """Force an immediate synchronization with Google Calendar"""
-    try:
-        result = calendar.refresh_cache()
-        if result.get('success'):
-            return f"Calendar synchronized successfully. {result.get('events_synced', 0)} events updated."
-        else:
-            return f"Calendar synchronization failed: {result.get('error', 'Unknown error')}"
-    except Exception as e:
-        print(f"[ERROR] Failed to sync calendar: {e}")
-        return "Sorry, I encountered an error synchronizing the calendar."
-
-# Outlook-specific commands
-def create_outlook_event(summary, time, duration, description="", location=""):
-    """Create an event specifically in Outlook"""
-    try:
-        if not outlook.is_authenticated:
-            return "Sorry, Outlook is not connected. Please authenticate first."
-        
-        start_time = datetime.fromisoformat(time)
-        end_time = start_time + timedelta(minutes=duration)
-        
-        return outlook.create_event(summary, start_time, end_time, description, location)
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to create Outlook event: {e}")
-        return f"Sorry, I encountered an error creating the Outlook event: {str(e)}"
-
-def get_outlook_events(date_str):
-    """Get events for a date from Outlook"""
-    try:
-        if not outlook.is_authenticated:
-            return "Sorry, Outlook is not connected. Please authenticate first."
-        
-        date_obj = dateparser.parse(date_str)
-        if not date_obj:
-            return "Sorry, I couldn't understand which date you're referring to."
-        
-        return outlook.get_events_for_date(date_obj)
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to get Outlook events: {e}")
-        return f"Sorry, I encountered an error retrieving Outlook events: {str(e)}"
-
-def authenticate_outlook():
-    """Authenticate with Outlook"""
-    try:
-        success = outlook.authenticate()
-        if success:
-            return "Outlook authentication successful! You can now manage your Outlook calendar."
-        else:
-            return "Outlook authentication failed. Please check your setup and try again."
-    except Exception as e:
-        print(f"[ERROR] Failed to authenticate Outlook: {e}")
-        return f"Sorry, I encountered an error during Outlook authentication: {str(e)}"

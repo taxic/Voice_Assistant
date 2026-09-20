@@ -105,12 +105,6 @@ class LocalCalendarDB:
             conn.commit()
             return event_id
 
-    def get_event(self, event_id: int) -> Optional[Dict]:
-        """Get a single event by ID"""
-        with self.get_connection() as conn:
-            row = conn.execute('SELECT * FROM events WHERE id = ? AND is_deleted = 0', (event_id,)).fetchone()
-            return dict(row) if row else None
-
     def get_event_by_provider_id(self, provider: str, provider_event_id: str) -> Optional[Dict]:
         """Get an event by its provider-specific ID"""
         with self.get_connection() as conn:
@@ -178,51 +172,6 @@ class LocalCalendarDB:
         except Exception as e:
             print(f"[ERROR] Failed to find events by summary: {e}")
             return []
-
-    def update_event_by_provider_id(self, provider: str, provider_event_id: str, **kwargs) -> bool:
-        """Update an event by its provider-specific ID."""
-        try:
-            with self.get_connection() as conn:
-                if provider == 'google':
-                    cursor = conn.execute('''
-                        UPDATE events SET updated_at = ?
-                        WHERE google_event_id = ? AND is_deleted = 0
-                    ''', (datetime.now().isoformat(), provider_event_id))
-
-                    if cursor.rowcount > 0:
-                        # Get the event ID and update with new data
-                        event = self.get_event_by_provider_id(provider, provider_event_id)
-                        if event:
-                            return self.update_event(event['id'], **kwargs)
-
-                elif provider == 'outlook':
-                    cursor = conn.execute('''
-                        UPDATE events SET updated_at = ?
-                        WHERE outlook_event_id = ? AND is_deleted = 0
-                    ''', (datetime.now().isoformat(), provider_event_id))
-
-                    if cursor.rowcount > 0:
-                        # Get the event ID and update with new data
-                        event = self.get_event_by_provider_id(provider, provider_event_id)
-                        if event:
-                            return self.update_event(event['id'], **kwargs)
-
-                return False
-
-        except Exception as e:
-            print(f"[ERROR] Failed to update event by provider ID: {e}")
-            return False
-
-    def delete_event_by_provider_id(self, provider: str, provider_event_id: str) -> bool:
-        """Delete an event by its provider-specific ID."""
-        try:
-            event = self.get_event_by_provider_id(provider, provider_event_id)
-            if event:
-                return self.delete_event(event['id'])
-            return False
-        except Exception as e:
-            print(f"[ERROR] Failed to delete event by provider ID: {e}")
-            return False
 
     def get_events_for_date_range(self, start_date: str, end_date: str, provider: str = None) -> List[Dict]:
         """Get all events within a date range"""
@@ -294,25 +243,6 @@ class LocalCalendarDB:
         return slots[0] if slots else None
 
     # Sync-related methods
-    def get_pending_sync_events(self, provider: str = None) -> List[Dict]:
-        """Get events that need to be synced"""
-        with self.get_connection() as conn:
-            if provider:
-                rows = conn.execute('''
-                    SELECT * FROM events
-                    WHERE sync_status IN ('pending', 'error')
-                    AND provider = ?
-                    ORDER BY updated_at
-                ''', (provider,)).fetchall()
-            else:
-                rows = conn.execute('''
-                    SELECT * FROM events
-                    WHERE sync_status IN ('pending', 'error')
-                    ORDER BY updated_at
-                ''').fetchall()
-
-            return [dict(row) for row in rows]
-
     def mark_event_synced(self, event_id: int, sync_time: str = None) -> bool:
         """Mark an event as successfully synced"""
         if sync_time is None:
@@ -321,12 +251,6 @@ class LocalCalendarDB:
         return self.update_event(event_id,
                                sync_status='synced',
                                last_sync_at=sync_time)
-
-    def mark_event_sync_error(self, event_id: int, error_message: str) -> bool:
-        """Mark an event as having sync error"""
-        return self.update_event(event_id,
-                               sync_status='error',
-                               last_sync_at=datetime.now().isoformat())
 
     def log_sync_operation(self, provider: str, operation: str, records_affected: int = 0,
                           success: bool = True, error_message: str = None, metadata: dict = None):
@@ -360,141 +284,3 @@ class LocalCalendarDB:
             ''', values)
 
             conn.commit()
-
-    def get_sync_stats(self) -> Dict[str, Any]:
-        """Get synchronization statistics"""
-        with self.get_connection() as conn:
-            # Get event counts by sync status
-            event_stats = conn.execute('''
-                SELECT provider, sync_status, COUNT(*) as count
-                FROM events
-                WHERE is_deleted = 0
-                GROUP BY provider, sync_status
-            ''').fetchall()
-
-            # Get recent sync operations
-            recent_syncs = conn.execute('''
-                SELECT provider, operation, success, sync_time, records_affected
-                FROM sync_log
-                ORDER BY sync_time DESC
-                LIMIT 10
-            ''').fetchall()
-
-            return {
-                'event_stats': [dict(row) for row in event_stats],
-                'recent_syncs': [dict(row) for row in recent_syncs]
-            }
-
-    def cleanup_old_events(self, days_to_keep: int = 30) -> int:
-        """Remove old events that are no longer needed (hard delete)"""
-        cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).isoformat()
-
-        with self.get_connection() as conn:
-            cursor = conn.execute('''
-                DELETE FROM events
-                WHERE start_time < ? AND is_deleted = 1
-            ''', (cutoff_date,))
-
-            deleted_count = cursor.rowcount
-            conn.commit()
-
-            return deleted_count
-
-    def get_database_size(self) -> Dict[str, int]:
-        """Get database size information"""
-        with self.get_connection() as conn:
-            # Get table counts
-            events_count = conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]
-            sync_log_count = conn.execute('SELECT COUNT(*) FROM sync_log').fetchone()[0]
-
-            # Get database file size
-            db_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
-
-            return {
-                'events_count': events_count,
-                'sync_log_count': sync_log_count,
-                'database_size_bytes': db_size
-            }
-
-    def vacuum_database(self):
-        """Optimize database by rebuilding and cleaning up space"""
-        with self.get_connection() as conn:
-            conn.execute('VACUUM')
-            conn.commit()
-
-    def export_events(self, start_date: str = None, end_date: str = None, format: str = 'json') -> str:
-        """Export events to JSON or CSV format"""
-        with self.get_connection() as conn:
-            if start_date and end_date:
-                rows = conn.execute('''
-                    SELECT * FROM events
-                    WHERE start_time >= ? AND start_time <= ? AND is_deleted = 0
-                    ORDER BY start_time
-                ''', (start_date, end_date)).fetchall()
-            else:
-                rows = conn.execute('SELECT * FROM events WHERE is_deleted = 0 ORDER BY start_time').fetchall()
-
-            events = [dict(row) for row in rows]
-
-            if format.lower() == 'json':
-                return json.dumps(events, indent=2, default=str)
-            else:
-                # Simple CSV format
-                if not events:
-                    return ""
-
-                import csv
-                import io
-
-                output = io.StringIO()
-                fieldnames = events[0].keys()
-                writer = csv.DictWriter(output, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(events)
-
-                return output.getvalue()
-
-    def import_events(self, data: str, format: str = 'json', source_provider: str = 'import') -> int:
-        """Import events from JSON or CSV data"""
-        imported_count = 0
-
-        try:
-            if format.lower() == 'json':
-                events = json.loads(data)
-            else:
-                # Parse CSV
-                import csv
-                import io
-                reader = csv.DictReader(io.StringIO(data))
-                events = list(reader)
-
-            # Convert string dates back to datetime objects for processing
-            for event in events:
-                if isinstance(event.get('start_time'), str):
-                    # Ensure proper datetime format
-                    try:
-                        datetime.fromisoformat(event['start_time'].replace('Z', '+00:00'))
-                    except ValueError:
-                        continue  # Skip invalid dates
-
-                # Set provider if not specified
-                if 'provider' not in event:
-                    event['provider'] = source_provider
-
-                # Create the event
-                self.create_event(
-                    summary=event.get('summary', ''),
-                    start_time=event['start_time'],
-                    end_time=event.get('end_time', ''),
-                    description=event.get('description', ''),
-                    location=event.get('location', ''),
-                    provider=event.get('provider', source_provider),
-                    google_event_id=event.get('google_event_id'),
-                    outlook_event_id=event.get('outlook_event_id')
-                )
-                imported_count += 1
-
-        except Exception as e:
-            print(f"[ERROR] Failed to import events: {e}")
-
-        return imported_count

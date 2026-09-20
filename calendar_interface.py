@@ -273,27 +273,6 @@ class GoogleCalendar:
         except Exception as e:
             return f"Failed to retrieve upcoming events: {str(e)}"
 
-    # Cache management methods
-    def refresh_cache(self):
-        """Force refresh the local cache with Google Calendar data."""
-        return self.cache_sync.force_refresh_cache()
-
-    def get_cache_status(self):
-        """Get current cache synchronization status."""
-        return self.cache_sync.get_sync_status()
-
-    def cleanup_cache(self, days_to_keep: int = 30):
-        """Clean up old events from cache."""
-        return self.cache_sync.cleanup_cache(days_to_keep)
-
-    def export_cache(self, format: str = 'json'):
-        """Export cached events."""
-        return self.cache_sync.export_cache(format)
-
-    def import_cache(self, data: str, format: str = 'json'):
-        """Import events into cache."""
-        return self.cache_sync.import_cache(data, format)
-
     def get_events_for_date(self, date_obj):
         """Retrieve all events for a specific date using local cache for improved performance."""
         # Use cache sync system for fast local access

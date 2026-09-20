@@ -1,9 +1,7 @@
 # response_variations.py
 
 import random
-import time
 from datetime import datetime
-from config_manager import config
 
 class ResponseVariations:
     def __init__(self):
@@ -73,20 +71,6 @@ class ResponseVariations:
             "Will do, stopping."
         ]
         
-        # Processing/thinking responses (for when LLM is working)
-        self.processing_responses = [
-            "Let me think about that...",
-            "Give me just a moment...",
-            "Processing that for you...",
-            "One second while I figure this out...",
-            "Let me work on that...",
-            "Hmm, let me see...",
-            "Working on it...",
-            "Just a moment...",
-            "Let me check on that...",
-            "Thinking..."
-        ]
-        
         # Acknowledgment responses
         self.acknowledgment_responses = [
             "Got it!",
@@ -129,20 +113,6 @@ class ResponseVariations:
             "Sorted!"
         ]
         
-        # Greeting responses (when user greets the assistant)
-        self.greeting_responses = [
-            "Hello! Great to see you!",
-            "Hi there! How are you doing?",
-            "Hey! Nice to chat with you!",
-            "Hello! Hope you're having a good day!",
-            "Hi! What's new with you?",
-            "Hey there! How's it going?",
-            "Hello! Ready to help with whatever you need!",
-            "Hi! Good to hear from you!",
-            "Hey! What can I help you with today?",
-            "Hello! How can I make your day better?"
-        ]
-        
         # Last used responses to avoid immediate repetition
         self._last_responses = {}
         self._response_history = []
@@ -174,10 +144,6 @@ class ResponseVariations:
         """Get a varied interruption acknowledgment response"""
         return self._get_varied_response("interrupt", self.interrupt_responses)
     
-    def get_processing_response(self):
-        """Get a varied processing response"""
-        return self._get_varied_response("processing", self.processing_responses)
-    
     def get_acknowledgment_response(self):
         """Get a varied acknowledgment response"""
         return self._get_varied_response("acknowledgment", self.acknowledgment_responses)
@@ -189,10 +155,6 @@ class ResponseVariations:
     def get_success_response(self):
         """Get a varied success response"""
         return self._get_varied_response("success", self.success_responses)
-    
-    def get_greeting_response(self):
-        """Get a varied greeting response"""
-        return self._get_varied_response("greeting", self.greeting_responses)
     
     def _get_varied_response(self, category, responses):
         """Get a response with variation logic to avoid repetition"""
@@ -222,71 +184,6 @@ class ResponseVariations:
             self._response_history.pop(0)
         
         return response
-    
-    def add_personality_to_response(self, response, intent=None):
-        """Add personality touches to responses based on intent"""
-        if not response:
-            return response
-            
-        # Add occasional personality touches
-        personality_chance = config.get('assistant.personality_chance', 0.15)  # 15% chance
-        
-        if random.random() < personality_chance:
-            # Positive responses get more enthusiasm
-            if intent in ['timer', 'calendar_add', 'music_play', 'save_memory']:
-                enthusiasm_additions = [
-                    " Perfect!",
-                    " Great choice!",
-                    " Absolutely!",
-                    " You got it!",
-                    " Excellent!",
-                    " Nice!",
-                    " Awesome!",
-                    " Sounds good!",
-                ]
-                response += random.choice(enthusiasm_additions)
-            
-            # Information requests get helpful touches
-            elif intent in ['weather', 'time', 'web_search', 'memory_recall']:
-                helpful_additions = [
-                    " Hope that helps!",
-                    " Let me know if you need more details!",
-                    " Anything else you'd like to know?",
-                    " Is there anything else?",
-                    " Does that answer your question?",
-                ]
-                if random.random() < 0.3:  # 30% chance for info requests
-                    response += random.choice(helpful_additions)
-        
-        return response
-    
-    def get_context_appropriate_response(self, base_response, context=None):
-        """Modify response based on context (time of day, recent interactions, etc.)"""
-        if not base_response:
-            return base_response
-            
-        current_hour = datetime.now().hour
-        
-        # Add time-appropriate touches
-        if context == "morning" or (5 <= current_hour < 12):
-            if random.random() < 0.1:  # 10% chance
-                morning_touches = [
-                    " Hope you're having a great morning!",
-                    " Starting the day strong!",
-                    " Good morning energy!",
-                ]
-                base_response += random.choice(morning_touches)
-        
-        elif context == "evening" or (current_hour >= 18):
-            if random.random() < 0.1:  # 10% chance
-                evening_touches = [
-                    " Hope your day went well!",
-                    " Evening productivity mode!",
-                    " Winding down the day nicely!",
-                ]
-                base_response += random.choice(evening_touches)
-        
-        return base_response
 
 
 # Global instance

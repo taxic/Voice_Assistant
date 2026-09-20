@@ -1,8 +1,14 @@
 {
   "llm": {
-    "model": "mistral",
-    "timeout_seconds": 30,
-    "ollama_command": "ollama"
+    "model": "qwen2.5:7b-instruct",
+    "host": "http://localhost:11434",
+    "timeout_seconds": 60,
+    "keep_alive": "10m",
+    "num_ctx": 4096,
+    "max_history_messages": 20,
+    "agent_max_rounds": 4,
+    "embed_model": "nomic-embed-text",
+    "embed_timeout_seconds": 30
   },
   "weather": {
     "default_location": "Guildford",
@@ -27,6 +33,17 @@
     "scopes": "user-read-playback-state,user-modify-playback-state,user-read-currently-playing,streaming",
     "cache_file": ".spotify_cache"
   },
+  "navidrome": {
+    "url_env": "NAVIDROME_URL",
+    "username_env": "NAVIDROME_USERNAME",
+    "password_env": "NAVIDROME_PASSWORD",
+    "timeout_seconds": 10
+  },
+  "chromecast": {
+    "rooms": {},
+    "default_room": null,
+    "discovery_timeout_seconds": 8
+  },
   "jokes": {
     "api_url": "https://official-joke-api.appspot.com/random_joke",
     "timeout_seconds": 5,
@@ -39,15 +56,19 @@
   "voice": {
     "wake_word_timeout": 5.0,
     "command_timeout": 10.0,
+    "follow_up_timeout": 5.0,
     "interrupt_check_interval": 0.05
   },
   "tts": {
-    "engine": "piper",
+    "engine": "kokoro",
     "piper": {
-      "voice": "en_GB-southern_english_female-low",
-      "download_models": true,
-      "models_dir": "piper/models",
-      "chunk_size": 50
+      "voice": "en_GB-southern_english_female-low"
+    },
+    "kokoro": {
+      "model_variant": "int8",
+      "voice": "bf_emma",
+      "speed": 1.0,
+      "lang": "en-gb"
     }
   },
   "memory": {
@@ -56,9 +77,7 @@
     "short_term_max_items": 50,
     "short_term_context_limit": 10,
     "long_term_context_limit": 5,
-    "long_term_threshold": 7,
-    "importance_decay_days": 30,
-    "auto_summarize_threshold": 100
+    "reminder_window_days": 3
   },
   "assistant": {
     "name": "Jarvis",
@@ -82,21 +101,21 @@
     "max_scrape_results": 3,
     "timeout_seconds": 10,
     "scrape_timeout_seconds": 15,
-    "max_content_length": 3000,
-    "delay_between_requests": 2,
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    "max_content_length": 3000
   },
   "paths": {
-    "config_file": "config.json",
-    "memory_file": "memory.json",
-    "logs_directory": "logs"
+    "memory_file": "memory.db"
   },
   "notion": {
        "default_database_id": "25acf958599580d78a78000c720a6bf3",
-       "default_page_id": "25acf958599580cbaa86d4da2f4b37ff",
-       "timeout_seconds": 15,
-       "max_search_results": 10
+       "default_page_id": "25acf958599580cbaa86d4da2f4b37ff"
      },
+  "coding": {
+    "execution_timeout_seconds": 10,
+    "max_output_length": 1500,
+    "min_confirm_gap_seconds": 3.0,
+    "max_confirm_gap_seconds": 300.0
+  },
   "iot":{
       "devices": [
     ]

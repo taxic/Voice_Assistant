@@ -29,13 +29,6 @@ except ImportError:
     MQTT_AVAILABLE = False
     print("[INFO] MQTT not available. Install paho-mqtt for MQTT device support.")
 
-try:
-    from tuya_connector import TuyaOpenAPI
-    TUYA_AVAILABLE = True
-except ImportError:
-    TUYA_AVAILABLE = False
-    print("[INFO] Tuya not available. Install tuya-connector-python for Tuya device support.")
-
 # Tapo imports will be done locally to avoid circular import issues
 TAPO_AVAILABLE = True
 
@@ -45,7 +38,7 @@ class IoTDevice:
         self.device_id = device_id
         self.name = name.lower()  # Store in lowercase for easier matching
         self.device_type = device_type  # light, switch, thermostat, sensor, etc.
-        self.protocol = protocol  # mqtt, http, tuya, philips_hue, etc.
+        self.protocol = protocol  # mqtt, http, philips_hue, tapo, etc.
         self.config = kwargs
         self.last_state = {}
         self.last_updated = None
@@ -60,7 +53,6 @@ class IoTManager:
         self.devices = {}  # device_id -> IoTDevice
         self.device_name_map = {}  # name -> device_id for quick lookup
         self.mqtt_client = None
-        self.tuya_api = None
         self.philips_hue_bridge_ip = None
         self.philips_hue_username = None
         self.tapo_manager = None
@@ -84,13 +76,6 @@ class IoTManager:
             self._initialize_mqtt()
         else:
             iot_logger.debug("MQTT not enabled or not available")
-
-        # Initialize Tuya if available and configured
-        if TUYA_AVAILABLE and self.iot_config.get('tuya', {}).get('enabled', False):
-            iot_logger.debug("Tuya enabled in configuration, initializing...")
-            self._initialize_tuya()
-        else:
-            iot_logger.debug("Tuya not enabled or not available")
 
         # Initialize Philips Hue if configured
         if self.iot_config.get('philips_hue', {}).get('enabled', False):
@@ -144,32 +129,6 @@ class IoTManager:
         except Exception as e:
             iot_logger.error(f"Failed to initialize MQTT: {e}")
             iot_logger.debug(f"MQTT initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
-    
-    def _initialize_tuya(self):
-        """Initialize Tuya Smart connection"""
-        try:
-            tuya_config = self.iot_config.get('tuya', {})
-            access_id = tuya_config.get('access_id')
-            access_secret = tuya_config.get('access_secret')
-            api_endpoint = tuya_config.get('api_endpoint', 'https://openapi.tuyaus.com')
-
-            iot_logger.debug(f"Initializing Tuya connection to {api_endpoint}")
-            iot_logger.debug(f"Tuya config - access_id: {'set' if access_id else 'not set'}, access_secret: {'set' if access_secret else 'not set'}")
-
-            if access_id and access_secret:
-                iot_logger.debug("Creating Tuya API client...")
-                self.tuya_api = TuyaOpenAPI(
-                    endpoint=api_endpoint,
-                    access_id=access_id,
-                    access_key=access_secret
-                )
-                iot_logger.info("Tuya Smart initialized successfully")
-            else:
-                iot_logger.warning("Tuya access credentials not configured")
-
-        except Exception as e:
-            iot_logger.error(f"Failed to initialize Tuya: {e}")
-            iot_logger.debug(f"Tuya initialization error details: {type(e).__name__}: {str(e)}", exc_info=True)
     
     def _initialize_philips_hue(self):
         """Initialize Philips Hue connection"""
@@ -307,9 +266,6 @@ class IoTManager:
             elif device.protocol == 'mqtt':
                 iot_logger.debug("Routing to MQTT control")
                 return self._control_mqtt_light(device, True, brightness, color)
-            elif device.protocol == 'tuya':
-                iot_logger.debug("Routing to Tuya control")
-                return self._control_tuya_light(device, True, brightness, color)
             elif device.protocol == 'http':
                 iot_logger.debug("Routing to HTTP control")
                 return self._control_http_light(device, True, brightness, color)
@@ -347,9 +303,6 @@ class IoTManager:
             elif device.protocol == 'mqtt':
                 iot_logger.debug("Routing to MQTT control")
                 return self._control_mqtt_light(device, False)
-            elif device.protocol == 'tuya':
-                iot_logger.debug("Routing to Tuya control")
-                return self._control_tuya_light(device, False)
             elif device.protocol == 'http':
                 iot_logger.debug("Routing to HTTP control")
                 return self._control_http_light(device, False)
@@ -406,8 +359,6 @@ class IoTManager:
         try:
             if device.protocol == 'mqtt':
                 return self._control_mqtt_switch(device, True)
-            elif device.protocol == 'tuya':
-                return self._control_tuya_switch(device, True)
             elif device.protocol == 'http':
                 return self._control_http_switch(device, True)
             else:
@@ -428,8 +379,6 @@ class IoTManager:
         try:
             if device.protocol == 'mqtt':
                 return self._control_mqtt_switch(device, False)
-            elif device.protocol == 'tuya':
-                return self._control_tuya_switch(device, False)
             elif device.protocol == 'http':
                 return self._control_http_switch(device, False)
             else:
@@ -451,8 +400,6 @@ class IoTManager:
         try:
             if device.protocol == 'mqtt':
                 return self._control_mqtt_thermostat(device, temperature)
-            elif device.protocol == 'tuya':
-                return self._control_tuya_thermostat(device, temperature)
             elif device.protocol == 'http':
                 return self._control_http_thermostat(device, temperature)
             else:
@@ -474,8 +421,6 @@ class IoTManager:
         try:
             if device.protocol == 'mqtt':
                 return self._read_mqtt_sensor(device)
-            elif device.protocol == 'tuya':
-                return self._read_tuya_sensor(device)
             elif device.protocol == 'http':
                 return self._read_http_sensor(device)
             else:
@@ -544,9 +489,6 @@ class IoTManager:
             elif device.protocol == 'mqtt':
                 iot_logger.debug("Routing to MQTT status check")
                 return self._get_mqtt_device_status(device)
-            elif device.protocol == 'tuya':
-                iot_logger.debug("Routing to Tuya status check")
-                return self._get_tuya_device_status(device)
             elif device.protocol == 'http':
                 iot_logger.debug("Routing to HTTP status check")
                 return self._get_http_device_status(device)
@@ -656,16 +598,6 @@ class IoTManager:
         action = "turned on" if on else "turned off"
         return f"Light '{device.name}' {action} via MQTT."
     
-    def _control_tuya_light(self, device: IoTDevice, on: bool, brightness: int = None, color: str = None) -> str:
-        """Control Tuya light"""
-        if not self.tuya_api:
-            return "Tuya not configured."
-        
-        # This would need actual Tuya API implementation
-        # Placeholder for now
-        action = "turned on" if on else "turned off"
-        return f"Light '{device.name}' {action} via Tuya."
-    
     def _control_http_light(self, device: IoTDevice, on: bool, brightness: int = None, color: str = None) -> str:
         """Control HTTP-based light"""
         base_url = device.config.get('base_url', '')
@@ -694,6 +626,33 @@ class IoTManager:
         else:
             return f"Failed to control HTTP light '{device.name}'."
 
+    # Named colors as (hue 0-360, saturation 0-100) for Tapo's set_color call
+    _TAPO_HUE_SATURATION_MAP = {
+        'red': (0, 100), 'orange': (30, 100), 'yellow': (60, 100),
+        'green': (120, 100), 'cyan': (180, 100), 'blue': (240, 100),
+        'purple': (280, 100), 'pink': (320, 100), 'magenta': (300, 100),
+        'white': (0, 0),
+    }
+    # Whitish/mood descriptors as color temperature in Kelvin for Tapo's
+    # set_color_temperature call - values match what this project's old
+    # Tapo voice-command scenes used (warm/cool/reading/relax presets).
+    _TAPO_COLOR_TEMPERATURE_MAP = {
+        'warm': 2700, 'warm white': 2700, 'soft white': 2700,
+        'cool': 5000, 'cool white': 5000, 'daylight': 5000, 'bright white': 5000,
+        'reading': 4000, 'reading mode': 4000, 'reading light': 4000,
+        'relax': 2200, 'relax mode': 2200, 'relaxing': 2200, 'relaxation': 2200,
+    }
+
+    def _resolve_tapo_hue_saturation(self, color: str):
+        """Map a named color to (hue, saturation) for set_tapo_color, or
+        None if it's not a recognized named color."""
+        return self._TAPO_HUE_SATURATION_MAP.get(color.strip().lower())
+
+    def _resolve_tapo_color_temperature(self, color: str):
+        """Map a whitish/mood descriptor to a Kelvin value for
+        set_tapo_color_temperature, or None if unrecognized."""
+        return self._TAPO_COLOR_TEMPERATURE_MAP.get(color.strip().lower())
+
     def _control_tapo_light(self, device, on: bool, brightness: int = None, color: str = None) -> str:
         """Control Tapo light"""
         iot_logger.debug(f"Controlling Tapo light '{device.name}' - on: {on}, brightness: {brightness}, color: {color}")
@@ -701,7 +660,10 @@ class IoTManager:
         try:
             # Import Tapo components locally to avoid circular imports
             iot_logger.debug("Importing Tapo wrapper functions...")
-            from tapo_light_wrapper import turn_on_tapo_light, turn_off_tapo_light, set_tapo_brightness
+            from tapo_light_wrapper import (
+                turn_on_tapo_light, turn_off_tapo_light, set_tapo_brightness,
+                set_tapo_color, set_tapo_color_temperature,
+            )
 
             if on:
                 iot_logger.debug(f"Turning on Tapo light '{device.name}'")
@@ -723,12 +685,24 @@ class IoTManager:
                         iot_logger.error(f"Failed to set brightness: {brightness_result}")
                         return f"Light turned on but failed to set brightness: {brightness_result}"
 
-                # Set color if specified (simplified color mapping)
+                # Set color if specified
                 if color:
-                    iot_logger.debug(f"Setting color to {color} (simplified implementation)")
-                    # This would need more sophisticated color handling
-                    # For now, just return success for color setting
-                    pass
+                    iot_logger.debug(f"Setting color to '{color}'")
+                    hue_sat = self._resolve_tapo_hue_saturation(color)
+                    if hue_sat is not None:
+                        hue, saturation = hue_sat
+                        color_result = set_tapo_color(device.name, hue, saturation)
+                    else:
+                        temperature = self._resolve_tapo_color_temperature(color)
+                        if temperature is None:
+                            iot_logger.warning(f"Unrecognized color '{color}' for Tapo light")
+                            return f"Light turned on, but I don't recognize the color '{color}'."
+                        color_result = set_tapo_color_temperature(device.name, temperature)
+
+                    iot_logger.debug(f"Color set result: {color_result}")
+                    if color_result.lower().startswith("failed") or "not found" in color_result.lower():
+                        iot_logger.error(f"Failed to set color: {color_result}")
+                        return f"Light turned on but failed to set color: {color_result}"
 
                 action = "turned on"
                 extras = []
@@ -770,15 +744,6 @@ class IoTManager:
         action = "turned on" if on else "turned off"
         return f"Switch '{device.name}' {action} via MQTT."
     
-    def _control_tuya_switch(self, device: IoTDevice, on: bool) -> str:
-        """Control Tuya switch"""
-        if not self.tuya_api:
-            return "Tuya not configured."
-        
-        # Placeholder for Tuya switch control
-        action = "turned on" if on else "turned off"
-        return f"Switch '{device.name}' {action} via Tuya."
-    
     def _control_http_switch(self, device: IoTDevice, on: bool) -> str:
         """Control HTTP switch"""
         base_url = device.config.get('base_url', '')
@@ -812,14 +777,6 @@ class IoTManager:
         self.mqtt_client.publish(topic, payload)
         
         return f"Thermostat '{device.name}' set to {temperature}°C via MQTT."
-    
-    def _control_tuya_thermostat(self, device: IoTDevice, temperature: float) -> str:
-        """Control Tuya thermostat"""
-        if not self.tuya_api:
-            return "Tuya not configured."
-        
-        # Placeholder for Tuya thermostat control
-        return f"Thermostat '{device.name}' set to {temperature}°C via Tuya."
     
     def _control_http_thermostat(self, device: IoTDevice, temperature: float) -> str:
         """Control HTTP thermostat"""
@@ -891,12 +848,6 @@ class IoTManager:
         else:
             iot_logger.debug(f"No cached status available for MQTT device '{device.name}'")
             return f"MQTT status for '{device.name}' - no recent data available."
-
-    def _get_tuya_device_status(self, device: IoTDevice) -> str:
-        """Get Tuya device status"""
-        iot_logger.debug(f"Getting Tuya status for device '{device.name}'")
-        iot_logger.debug("Tuya status feature not yet implemented")
-        return f"Tuya status for '{device.name}' - feature coming soon."
 
     def _get_tapo_device_status(self, device: IoTDevice) -> str:
         """Get Tapo device status"""
@@ -1025,10 +976,6 @@ class IoTManager:
         if device.last_state:
             return f"Sensor '{device.name}' reading: {device.last_state}"
         return f"No recent data for sensor '{device.name}'."
-    
-    def _read_tuya_sensor(self, device: IoTDevice) -> str:
-        """Read Tuya sensor"""
-        return f"Tuya sensor reading for '{device.name}' - feature coming soon."
     
     def _read_http_sensor(self, device: IoTDevice) -> str:
         """Read HTTP sensor"""

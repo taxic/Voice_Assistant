@@ -23,7 +23,7 @@ A sophisticated voice-controlled AI assistant with advanced memory capabilities,
 ## 🛠️ Technology Stack
 
 - **Python 3.7+**
-- **Ollama** (Local LLM - Mistral)
+- **Ollama** (Local LLM - Qwen2.5 7B Instruct by default, tool-calling capable)
 - **Vosk** (Speech Recognition)
 - **Piper TTS** (Neural Text-to-Speech)
 - **Spotify Web API** (Music Integration)
@@ -74,11 +74,40 @@ pip install -r requirements.txt
    export SPOTIFY_REDIRECT_URI="http://localhost:8888/callback"
    ```
 
+### Navidrome + Chromecast Setup (Optional)
+
+Room-targeted playback from a self-hosted [Navidrome](https://www.navidrome.org/) music server, cast to Google Cast/Chromecast speakers.
+
+1. Add environment variables for your Navidrome server:
+   ```bash
+   export NAVIDROME_URL="http://your-mini-pc:4533"
+   export NAVIDROME_USERNAME="your_username"
+   export NAVIDROME_PASSWORD="your_password"
+   ```
+2. In `config.json`, map room names to each Chromecast device's actual Cast friendly name (Google Home app → device → settings shows this) and pick a default room:
+   ```json
+   "chromecast": {
+     "rooms": {
+       "kitchen": "Kitchen Speaker",
+       "living room": "Living Room TV"
+     },
+     "default_room": "kitchen"
+   }
+   ```
+3. The device running the assistant needs to be on the same network/subnet as the Chromecasts - device discovery uses mDNS, which doesn't cross subnets.
+
+Plays one track per request rather than a continuous queue/playlist right now - see the Music/Chromecast section under Advanced Features for why, and what a fuller version would need.
+
 ### Ollama Setup
 
 ```bash
-ollama pull mistral
+ollama pull qwen2.5:7b-instruct
+ollama pull nomic-embed-text
 ```
+
+The first is the default chat model (`llm.model` in `config.json`), chosen to fit comfortably in 6GB of VRAM (~4.7GB at Q4_K_M) while still supporting native tool/function calling, which the assistant relies on. If you have more VRAM to spare, a larger Qwen2.5 or Llama 3.3 model will reason better - just `ollama pull` it and update `llm.model` to match.
+
+The second (`llm.embed_model`) is a small, separate model used only for semantic memory search - it's tiny (~274MB) and doesn't compete for VRAM with the chat model. Not strictly required to start the assistant - if it's missing, memory search just falls back to plain keyword matching instead of failing.
 
 ## 🎯 Usage
 
@@ -109,11 +138,17 @@ python settings_gui.py
 - "Turn off all lights"
 - "Set the lounge light to warm white"
 
-**Music Control:**
+**Music Control (Spotify):**
 - "Play my workout playlist"
 - "Skip to the next song"
 - "Pause the music"
 - "Turn up the volume"
+
+**Room-Targeted Music (Navidrome + Chromecast):**
+- "Play some jazz in the kitchen"
+- "Play my workout playlist in the living room"
+- "Pause the kitchen"
+- "Set the living room volume to 40%"
 
 **Web Search:**
 - "Search for the latest Python tutorials"
@@ -129,6 +164,11 @@ python settings_gui.py
 - "Create a todo to buy groceries"
 - "Add a note about the meeting"
 - "Show my todos"
+
+**Coding:**
+- "Write me a script that renames all files in a folder to lowercase"
+- "What does this code print: [describe or read out the code]"
+- "Run that script you just wrote" (asks for confirmation first, then run again to confirm)
 
 ### Interrupt Commands
 
@@ -148,10 +188,13 @@ You can interrupt the assistant at any time by saying:
 
 The assistant maintains conversation context using:
 - **Recent Memory**: Last 5-50 interactions (configurable)
-- **Contextual Search**: Semantic search through conversation history
+- **Contextual Search**: Real semantic search via embeddings (Ollama's `nomic-embed-text`), not keyword matching - stored interactions and long-term memories are ranked by cosine similarity to the query, so phrasing doesn't need to match what was originally said. Falls back to keyword (`LIKE`) search automatically if the embed model isn't pulled or Ollama is unreachable.
 - **Categorized Storage**: Different types of interactions (weather, calendar, etc.)
-- **Importance Scoring**: Automatic prioritization of important information
-- **Auto-summarization**: Memory compression for long conversations
+- **Importance Scoring**: A 1-10 field on every stored item, used to rank results - set explicitly (e.g. the assistant's own `save_memory` tool saves at high importance), not computed automatically from content
+- **Auto-summarization**: Not yet real - the current "conversation summary" is a placeholder that just lists recent topic labels, not an actual LLM-generated summary. Known gap, not yet fixed.
+- **Dated Events & Reminders**: Birthdays, anniversaries, and appointments are stored separately from free-text memory (a real `event_date`, not just text) via the `save_event` tool, so "what's coming up" can actually be computed instead of guessed from keywords. Yearly-recurring events (birthdays, anniversaries) automatically roll forward to their next occurrence, including correct Feb 29 handling in non-leap years. The assistant checks for anything due within `memory.reminder_window_days` (default 3) the first time you say the wake word each day and works it into its greeting - once per event per day, not on every single wake-up. Ask `get_upcoming_events` any time for a full list regardless of what's already been mentioned.
+
+Run `ollama pull nomic-embed-text` alongside your chat model - semantic search needs it separately.
 
 #### Memory Configuration
 ```json
@@ -162,9 +205,11 @@ The assistant maintains conversation context using:
     "short_term_max_items": 50,
     "short_term_context_limit": 10,
     "long_term_context_limit": 5,
-    "long_term_threshold": 7,
-    "importance_decay_days": 30,
-    "auto_summarize_threshold": 100
+    "reminder_window_days": 3
+  },
+  "llm": {
+    "embed_model": "nomic-embed-text",
+    "embed_timeout_seconds": 30
   }
 }
 ```
@@ -208,6 +253,34 @@ Automatically suggests appropriate default times and durations for calendar even
 }
 ```
 
+### Music: Navidrome + Chromecast (Room-Targeted Playback)
+
+- **Voice Control**: "Play some jazz in the kitchen", "play my workout playlist", "pause the living room"
+- **Library Search**: Matches songs, albums, and playlists in your self-hosted Navidrome library via the Subsonic API - nothing leaves your network except to the Chromecast devices themselves
+- **Room Targeting**: `chromecast.rooms` maps room names to each Chromecast's actual device name; omitting a room falls back to `chromecast.default_room`
+- **Discovery Caching**: Devices are found once via mDNS (a few-second scan) and cached for the rest of the session, not re-scanned on every command - if a cached device stops responding (rebooted, new IP), it automatically re-discovers once and retries
+- **Current limitation**: plays one track per request, not a continuous queue - "play some jazz" plays one jazz track, not an endless jazz session. Chromecast does support real queueing (`enqueue`-based, with a status-listener pattern to auto-advance), but that's meaningfully more code to get right, so it's a deliberate follow-up rather than something guessed at and shipped unverified. Worth revisiting once the basic cast-and-play path is confirmed working on real hardware.
+
+#### Navidrome/Chromecast Configuration
+```json
+{
+  "navidrome": {
+    "url_env": "NAVIDROME_URL",
+    "username_env": "NAVIDROME_USERNAME",
+    "password_env": "NAVIDROME_PASSWORD",
+    "timeout_seconds": 10
+  },
+  "chromecast": {
+    "rooms": {
+      "kitchen": "Kitchen Speaker",
+      "living room": "Living Room TV"
+    },
+    "default_room": "kitchen",
+    "discovery_timeout_seconds": 8
+  }
+}
+```
+
 ### Web Search Integration
 
 - **Privacy-Focused**: Uses DuckDuckGo (no tracking)
@@ -223,33 +296,63 @@ Automatically suggests appropriate default times and durations for calendar even
     "max_scrape_results": 3,
     "timeout_seconds": 10,
     "scrape_timeout_seconds": 15,
-    "max_content_length": 3000,
-    "delay_between_requests": 2
+    "max_content_length": 3000
   }
 }
 ```
 
-### Piper TTS (Text-to-Speech)
+### Python Code Execution
 
-- **Natural Voices**: Neural network-based speech synthesis
-- **British English**: Default voice is `en_GB-southern_english_female-low`
-- **Interrupt Support**: Can be stopped mid-sentence
-- **Automatic Setup**: Downloads voice models on first run
+The assistant can write and run Python on request - "write me a script that renames these files", "what does this print". Not a real sandbox (no container, no resource limits beyond a timeout) - the trust model is your own request on your own machine, with two real safety measures instead:
+
+- **Write is instant, run is gated**: Saving a script (`write_code_file`) needs no confirmation - a file on disk can't do anything by itself. Actually running code goes through `propose_code_run` (stages it, describes what it'll do, doesn't execute) then `confirm_code_run` (actually runs it) - the assistant always describes what it's about to run and waits for you to say yes before calling `confirm_code_run`.
+- **The confirmation gate is enforced in code, not just prompted**: the LLM agent loop can chain several tool calls together within a single turn before you get to say anything - so a system-prompt instruction alone ("ask before running") isn't a real guarantee a 7B model won't occasionally skip. `confirm_code_run` refuses to run anything staged less than `coding.min_confirm_gap_seconds` ago (default 3s) - a same-turn propose-then-confirm chain happens in milliseconds (LLM inference only), while a real confirmation always takes longer (the question has to be spoken via TTS, then you have to hear it and reply, then STT has to process your answer). A stale proposal older than `coding.max_confirm_gap_seconds` (default 5 minutes) is refused too, so a leftover "yes" long after the fact can't trigger old code.
+- **Execution limits**: a subprocess timeout (`coding.execution_timeout_seconds`, default 10s) and an output length cap (`coding.max_output_length`, default 1500 chars, since TTS reading back a huge wall of output isn't useful).
+- Saved scripts live in `scripts/` (gitignored, created automatically) - filenames are restricted to a plain `name.py` pattern, no subfolders or path traversal.
+
+#### Coding Configuration
+```json
+{
+  "coding": {
+    "execution_timeout_seconds": 10,
+    "max_output_length": 1500,
+    "min_confirm_gap_seconds": 3.0,
+    "max_confirm_gap_seconds": 300.0
+  }
+}
+```
+
+### Text-to-Speech: Kokoro (default) or Piper
+
+Two interchangeable TTS engines, picked via `tts.engine` - `interruptible_tts.py` builds whichever is configured and falls back to Piper automatically if Kokoro can't actually be used (package not installed, model download failed), so the assistant doesn't go silent over a TTS engine problem.
+
+- **Kokoro** (`kokoro_tts.py`, default): an 82M-parameter StyleTTS2-based model - noticeably more natural than Piper (third-party benchmarks put it around 4.2 MOS, close to real narration quality) for a similar hardware footprint (~2-3GB VRAM or CPU-only). Needs `pip install kokoro-onnx` (see requirements.txt) plus its ONNX model + voice-pack files, which download automatically on first run (~88MB for the default `int8` variant) into `kokoro/models/`.
+- **Piper** (`piper_tts.py`): smaller and faster (near-instant first audio), but audibly more robotic. Still available as `tts.engine: "piper"`, or as the automatic fallback if Kokoro isn't set up.
+
+Both share the same behavior:
+- **Streamed, sentence-by-sentence**: The assistant starts speaking as soon as the LLM finishes each sentence, instead of waiting for the whole response to generate - noticeably cuts the silence before you hear anything, especially on longer answers
+- **In-process playback**: synthesized audio plays directly via `sounddevice`, no temp files or separate player subprocess per chunk
+- **Interrupt Support**: `sd.stop()` halts audio immediately mid-sentence, not just at the next chunk boundary
+- **Automatic Setup**: downloads whatever model files it needs on first run
 
 #### TTS Configuration
 ```json
 {
   "tts": {
-    "engine": "piper",
+    "engine": "kokoro",
     "piper": {
-      "voice": "en_GB-southern_english_female-low",
-      "download_models": true,
-      "models_dir": "piper/models",
-      "chunk_size": 50
+      "voice": "en_GB-southern_english_female-low"
+    },
+    "kokoro": {
+      "model_variant": "int8",
+      "voice": "bf_emma",
+      "speed": 1.0,
+      "lang": "en-gb"
     }
   }
 }
 ```
+`kokoro.model_variant` is `int8` (88MB, default), `fp16` (169MB) or `f32` (310MB, highest quality) - all trade download size and inference speed for fidelity. `kokoro.voice` picks from Kokoro's built-in voice packs (British: `bf_alice`/`bf_emma`/`bf_isabella`/`bf_lily` female, `bm_daniel`/`bm_fable`/`bm_george`/`bm_lewis` male; American voices use the `af_`/`am_` prefix instead, e.g. `af_heart`).
 
 ### Silent Light Control
 
@@ -264,7 +367,7 @@ The assistant uses **"silent success, noisy failure"** principle:
 - **Real-time listening**: Continuously monitors for interrupt commands
 - **Voice Interrupt Detection**: Background processing in separate thread
 - **LLM Response Interruption**: Can terminate long-running generations
-- **Chunked Speech**: Long responses broken into smaller chunks
+- **Sentence-Level Speech**: Responses are spoken (and can be interrupted) one sentence at a time, streamed in as the LLM generates them rather than split by an arbitrary character count
 - **Clean Resource Management**: Proper cleanup of audio and process resources
 
 #### Configuration:
@@ -278,55 +381,33 @@ self.interrupt_words = ["stop", "pause", "wait", "interrupt", "hold on", "quiet"
 Assistant/
 ├── main.py                     # Main application entry point
 ├── voice_recognition.py        # Speech recognition and wake word detection
-├── llm_interface.py           # Ollama LLM integration
+├── llm_interface.py           # Ollama LLM integration (agent loop, tool-calling)
+├── ollama_client.py           # Ollama HTTP API client (streaming chat/embed)
+├── tools.py                   # Tool schemas + dispatch for the agent
+├── sentence_stream.py         # Sentence-boundary splitting for streamed TTS
 ├── commands.py                # Command implementations
 ├── interruptible_tts.py       # Text-to-speech with interrupt capability
-├── intent_parser.py           # Intent classification and parsing
-├── command_parser.py          # Command parsing utilities
 ├── calendar_interface.py      # Google Calendar integration
-├── memory.py                  # Conversation memory management
-├── settings_gui.py            # Settings and device management GUI
+├── enhanced_memory.py         # Conversation memory + semantic search (memory.db)
+├── settings_gui.py            # Standalone config-editing GUI
+├── launch_settings.py         # Launcher for settings_gui.py
 ├── tapo_light_wrapper.py      # Tapo smart light control
 ├── iot_manager.py            # IoT device management
 ├── iot_commands.py           # IoT command processing
-├── piper_tts.py             # Piper TTS implementation
+├── kokoro_tts.py             # Kokoro TTS implementation (default engine)
+├── piper_tts.py             # Piper TTS implementation (fallback engine)
 ├── web_search.py            # Web search functionality
-├── memory_system.py         # Enhanced memory system
 ├── smart_event_times.py     # Smart calendar time suggestions
 ├── notion_interface.py      # Notion API integration
 ├── spotify_interface.py     # Spotify integration
-├── weather_interface.py     # Weather data interface
-├── unified_calendar.py      # Calendar management
-├── test_*.py               # Test files for various features
+├── navidrome_interface.py    # Navidrome/Subsonic API client (library search + stream URLs)
+├── chromecast_interface.py   # Chromecast discovery/casting for room-targeted playback
+├── calendar_cache_sync.py   # Local calendar caching + background sync with Google
+├── local_calendar_db.py     # SQLite-backed local calendar cache
+├── code_execution.py        # Python code writing/execution (propose-then-confirm gated)
+├── scripts/                 # Saved/generated scripts (gitignored)
 ├── config.json             # Configuration file
 └── README.md               # This comprehensive guide
-```
-
-## 🧪 Testing
-
-### Test Core Functionality
-```bash
-python test_improvements.py
-```
-
-### Test Interrupt Functionality
-```bash
-python test_interrupt.py
-```
-
-### Test Smart Home Integration
-```bash
-python test_smart_bulb_integration.py
-```
-
-### Test Calendar Features
-```bash
-python test_calendar_gui.py
-```
-
-### Test Web Search
-```bash
-python test_web_search.py
 ```
 
 ## ⚙️ Configuration
@@ -335,44 +416,37 @@ python test_web_search.py
 - Wake word: "Jarvis" (configurable)
 - Model path: `models/vosk-model-small-en-us-0.15`
 - Interrupt detection: 50ms polling interval
+- Configurable in `config.json` under `voice`:
+  - `command_timeout`: How long to wait for a command right after the wake word, default 10s
+  - `follow_up_timeout`: How long to wait in silence after each reply before requiring the wake word again, default 5s - this is what lets you answer a clarifying question ("For how long?" → "five minutes") or keep talking without saying "Jarvis" every time. It's a silence timer, not a hard cutoff: as long as you're actively talking it keeps extending, so a long sentence isn't cut off - only a full `follow_up_timeout` seconds of actual silence falls back to wake-word mode.
+  - `wake_word_timeout`: Only read by the old GUI settings screens - the core voice loop's wake-word listening blocks indefinitely and doesn't use this value
 
 ### LLM Settings
-- Default model: Mistral (via Ollama)
-- Timeout: 30 seconds
-- Configurable in `llm_interface.py`
+All configurable in `config.json` under `llm`:
+- `model`: Default `qwen2.5:7b-instruct` (via Ollama) - needs tool-calling support
+- `host`: Ollama server URL, default `http://localhost:11434`
+- `timeout_seconds`: Per-call timeout, default 60
+- `keep_alive`: How long Ollama keeps the model loaded between calls, default `10m`
+- `num_ctx`: Context window size, default 4096
+- `max_history_messages`: How many recent chat turns stay in the live conversation
+- `agent_max_rounds`: Max chained tool-calling rounds per request, default 4
+- `system_prompt`: Optional override for the assistant's personality/instructions
 
 ### Memory System
-- Database: `memory.json` (JSON storage)
+- Database: `memory.db` (SQLite - despite the old filename, this was never actually JSON) - not tracked in git, see `.gitignore`
+- Semantic search via `nomic-embed-text` embeddings, with keyword fallback - see `llm.embed_model` above
 - Context limits: Configurable per memory type
-- Automatic cleanup and categorization
+- Dated events (birthdays, anniversaries, appointments) live in a separate `events` table with a real date column and optional yearly recurrence - see `memory.reminder_window_days` above
 
 ### Audio Settings
 - TTS: Piper neural synthesis
 - Voice: British English female
-- Audio format: WAV, optimized for Windows
-- Chunk size: 50 characters for responsive interrupts
+- Audio format: raw 16-bit PCM piped directly to `sounddevice` (no intermediate WAV file)
+- Chunking: sentence-level, streamed in as the LLM generates each one
 
 ## 📋 Requirements
 
-Create a `requirements.txt` file with dependencies:
-
-```
-vosk==0.3.45
-sounddevice==0.4.6
-requests==2.31.0
-dateparser==1.1.8
-google-auth==2.23.4
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
-google-api-python-client==2.108.0
-pytz==2023.3
-nltk==3.8.1
-numpy==1.24.0
-simpleaudio==1.0.4
-beautifulsoup4==4.12.0
-spotipy==2.22.0
-notion-client==2.0.0
-```
+See `requirements.txt` for the full, up-to-date dependency list - install with `pip install -r requirements.txt`.
 
 ## 🚨 Troubleshooting
 
@@ -386,7 +460,7 @@ notion-client==2.0.0
 
 #### 2. Ollama Connection Failed
 - Ensure Ollama is running: `ollama serve`
-- Check if Mistral model is installed: `ollama list`
+- Check if the configured model is installed: `ollama list` (should show `qwen2.5:7b-instruct`, or whatever `llm.model` is set to)
 - Verify network connectivity to Ollama
 
 #### 3. Tapo Light Control Issues
@@ -423,7 +497,7 @@ python test_audio_format.py
 python test_piper_optimization.py
 
 # Test memory system
-python -c "from memory_system import *; test_memory()"
+python -c "from enhanced_memory import EnhancedMemory; m = EnhancedMemory(); print(m.get_memory_stats()); m.close()"
 ```
 
 ## 📊 System Status
@@ -444,7 +518,7 @@ python -c "from memory_system import *; test_memory()"
 
 ### Configuration Status 🔧
 - **Voice Model**: Vosk English model (downloaded)
-- **LLM**: Mistral via Ollama (local)
+- **LLM**: Qwen2.5 7B Instruct via Ollama (local, tool-calling enabled)
 - **TTS**: Piper with British female voice (auto-downloaded)
 - **Calendar**: Google Calendar (requires credentials)
 - **Music**: Spotify (requires authentication)
@@ -529,19 +603,18 @@ This software incorporates several open-source components under their respective
 
 ### **Start Commands**
 - Main Assistant: `python main.py`
-- Settings GUI: `python settings_gui.py`
-- Text Assistant: `python text_assistant_gui.py`
+- Settings GUI: `python settings_gui.py` (or `python launch_settings.py`)
 
 ### **Test Commands**
 - Full System Test: `python test_improvements.py`
 - IoT Control Test: `python test_smart_bulb_integration.py`
 - Audio Test: `python test_audio_format.py`
-- Memory Test: `python -c "from memory_system import test_memory; test_memory()"`
+- Memory Test: `python -c "from enhanced_memory import EnhancedMemory; m = EnhancedMemory(); print(m.get_memory_stats()); m.close()"`
 
 ### **Configuration Files**
 - Main Config: `config.json`
 - Calendar Credentials: `credentials.json`
-- Memory Data: `memory.json`
+- Memory Data: `memory.db` (SQLite, gitignored)
 - Spotify Cache: `.spotify_cache`
 
 ### **Model Files**

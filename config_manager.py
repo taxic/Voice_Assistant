@@ -72,44 +72,19 @@ class ConfigManager:
         """Get entire configuration section"""
         return self.get(section, default or {})
     
-    def set(self, key_path: str, value: Any):
-        """Set configuration value using dot notation"""
-        if self._config is None:
-            self._config = {}
-        
-        keys = key_path.split('.')
-        current = self._config
-        
-        # Navigate to the parent of the target key
-        for key in keys[:-1]:
-            if key not in current:
-                current[key] = {}
-            current = current[key]
-        
-        # Set the final value
-        current[keys[-1]] = value
-    
-    def save_config(self, config_path: str = "config.json"):
-        """Save current configuration to file"""
-        try:
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
-            print(f"[INFO] Configuration saved to {config_path}")
-        except Exception as e:
-            print(f"[ERROR] Failed to save config: {e}")
-    
-    def reload_config(self, config_path: str = "config.json"):
-        """Reload configuration from file"""
-        self._config = None
-        self.load_config(config_path)
-    
     def _get_default_config(self) -> Dict[str, Any]:
         """Return default configuration if file loading fails"""
         return {
             "llm": {
-                "model": "mistral",
-                "timeout_seconds": 30,
-                "ollama_command": "ollama"
+                "model": "qwen2.5:7b-instruct",
+                "host": "http://localhost:11434",
+                "timeout_seconds": 60,
+                "keep_alive": "10m",
+                "num_ctx": 4096,
+                "max_history_messages": 20,
+                "agent_max_rounds": 4,
+                "embed_model": "nomic-embed-text",
+                "embed_timeout_seconds": 30
             },
             "weather": {
                 "default_location": "Guildford",
@@ -146,6 +121,7 @@ class ConfigManager:
             "voice": {
                 "wake_word_timeout": 5.0,
                 "command_timeout": 10.0,
+                "follow_up_timeout": 5.0,
                 "interrupt_check_interval": 0.05
             },
             "memory": {
@@ -154,9 +130,7 @@ class ConfigManager:
                 "short_term_max_items": 50,
                 "short_term_context_limit": 10,
                 "long_term_context_limit": 5,
-                "long_term_threshold": 7,
-                "importance_decay_days": 30,
-                "auto_summarize_threshold": 100
+                "reminder_window_days": 3
             },
             "assistant": {
                 "name": "Assistant",
@@ -171,14 +145,16 @@ class ConfigManager:
                 "max_scrape_results": 3,
                 "timeout_seconds": 10,
                 "scrape_timeout_seconds": 15,
-                "max_content_length": 3000,
-                "delay_between_requests": 2,
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "max_content_length": 3000
             },
             "paths": {
-                "config_file": "config.json",
-                "memory_file": "memory.json",
-                "logs_directory": "logs"
+                "memory_file": "memory.db"
+            },
+            "coding": {
+                "execution_timeout_seconds": 10,
+                "max_output_length": 1500,
+                "min_confirm_gap_seconds": 3.0,
+                "max_confirm_gap_seconds": 300.0
             }
         }
 
